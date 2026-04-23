@@ -37,6 +37,7 @@ using declarationsupport_impl::requireTypeTable;
 using declarationsupport_impl::resolveExtensionMethodSymbolName;
 using declarationsupport_impl::TopLevelDeclKind;
 using declarationsupport_impl::validateEmbeddedStructField;
+using declarationsupport_impl::validateExternCType;
 using declarationsupport_impl::validateExternCFunctionSignature;
 using declarationsupport_impl::validateFunctionReceiverAccess;
 using declarationsupport_impl::validateStructDeclShape;
@@ -245,6 +246,7 @@ class InterfaceCollector {
 
     struct CollectedFunctionInterface {
         FuncType *type = nullptr;
+        AbiKind abiKind = AbiKind::Native;
         std::vector<string> paramNames;
         std::vector<BindingKind> paramBindingKinds;
         std::vector<TypeNode *> paramTypeNodes;
@@ -866,6 +868,231 @@ class InterfaceCollector {
                   describeTypeNode(node, "void"),
               "Type parameters are only visible inside the generic item "
               "that declares them.");
+    }
+
+    bool containsGenericTypeParamReference(
+        TypeNode *node, const std::unordered_set<std::string> &params) {
+        if (!node) {
+            return false;
+        }
+        if (auto *param = dynamic_cast<FuncParamTypeNode *>(node)) {
+            return containsGenericTypeParamReference(param->type, params);
+        }
+        if (auto *base = dynamic_cast<BaseTypeNode *>(node)) {
+            std::string moduleName;
+            std::string memberName;
+            auto rawName = baseTypeName(base);
+            return !splitBaseTypeName(base, moduleName, memberName) &&
+                   params.contains(rawName);
+        }
+        if (auto *applied = dynamic_cast<AppliedTypeNode *>(node)) {
+            if (containsGenericTypeParamReference(applied->base, params)) {
+                return true;
+            }
+            for (auto *arg : applied->args) {
+                if (containsGenericTypeParamReference(arg, params)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (auto *qualified = dynamic_cast<ConstTypeNode *>(node)) {
+            return containsGenericTypeParamReference(qualified->base, params);
+        }
+        if (auto *dynType = dynamic_cast<DynTypeNode *>(node)) {
+            return containsGenericTypeParamReference(dynType->base, params);
+        }
+        if (auto *pointer = dynamic_cast<PointerTypeNode *>(node)) {
+            return containsGenericTypeParamReference(pointer->base, params);
+        }
+        if (auto *indexable = dynamic_cast<IndexablePointerTypeNode *>(node)) {
+            return containsGenericTypeParamReference(indexable->base, params);
+        }
+        if (auto *array = dynamic_cast<ArrayTypeNode *>(node)) {
+            return containsGenericTypeParamReference(array->base, params);
+        }
+        if (auto *tuple = dynamic_cast<TupleTypeNode *>(node)) {
+            for (auto *item : tuple->items) {
+                if (containsGenericTypeParamReference(item, params)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (auto *func = dynamic_cast<FuncPtrTypeNode *>(node)) {
+            for (auto *arg : func->args) {
+                if (containsGenericTypeParamReference(arg, params)) {
+                    return true;
+                }
+            }
+            return containsGenericTypeParamReference(func->ret, params);
+        }
+        return false;
+    }
+
+    void validateExternCGenericPointerLeaf(
+        AstFuncDecl *node, TypeNode *typeNode,
+        const std::unordered_set<std::string> &params,
+        const std::string &subject, bool allowGenericLeaf = false) {
+        if (!typeNode) {
+            return;
+        }
+        validateTypeNodeLayout(typeNode);
+        if (auto *param = dynamic_cast<FuncParamTypeNode *>(typeNode)) {
+            validateExternCGenericPointerLeaf(node, param->type, params,
+                                              subject, allowGenericLeaf);
+            return;
+        }
+        if (auto *base = dynamic_cast<BaseTypeNode *>(typeNode)) {
+            std::string moduleName;
+            std::string memberName;
+            auto rawName = baseTypeName(base);
+            if (!splitBaseTypeName(base, moduleName, memberName) &&
+                params.contains(rawName) && !allowGenericLeaf) {
+                error(typeNode->loc,
+                      "#[extern \"C\"] generic function `" +
+                          toStdString(node->name) + "` uses unsupported " +
+                          subject + ": " + describeTypeNode(typeNode, "void"),
+                      "Generic C FFI type parameters must appear as bare "
+                      "pointer targets like `T*`, `T const*`, or `T[*]` so "
+                      "every specialization shares one C symbol.");
+            }
+            return;
+        }
+        if (auto *qualified = dynamic_cast<ConstTypeNode *>(typeNode)) {
+            validateExternCGenericPointerLeaf(node, qualified->base, params,
+                                              subject, allowGenericLeaf);
+            return;
+        }
+        if (auto *pointer = dynamic_cast<PointerTypeNode *>(typeNode)) {
+            validateExternCGenericPointerLeaf(node, pointer->base, params,
+                                              subject, true);
+            return;
+        }
+        if (auto *indexable = dynamic_cast<IndexablePointerTypeNode *>(
+                typeNode)) {
+            validateExternCGenericPointerLeaf(node, indexable->base, params,
+                                              subject, true);
+            return;
+        }
+        if (auto *applied = dynamic_cast<AppliedTypeNode *>(typeNode)) {
+            validateExternCGenericPointerLeaf(node, applied->base, params,
+                                              subject, false);
+            for (auto *arg : applied->args) {
+                validateExternCGenericPointerLeaf(node, arg, params, subject,
+                                                  false);
+            }
+            return;
+        }
+        if (auto *dynType = dynamic_cast<DynTypeNode *>(typeNode)) {
+            validateExternCGenericPointerLeaf(node, dynType->base, params,
+                                              subject, false);
+            return;
+        }
+        if (auto *array = dynamic_cast<ArrayTypeNode *>(typeNode)) {
+            validateExternCGenericPointerLeaf(node, array->base, params,
+                                              subject, false);
+            return;
+        }
+        if (auto *tuple = dynamic_cast<TupleTypeNode *>(typeNode)) {
+            for (auto *item : tuple->items) {
+                validateExternCGenericPointerLeaf(node, item, params, subject,
+                                                  false);
+            }
+            return;
+        }
+        if (auto *func = dynamic_cast<FuncPtrTypeNode *>(typeNode)) {
+            for (auto *arg : func->args) {
+                validateExternCGenericPointerLeaf(node, arg, params, subject,
+                                                  false);
+            }
+            validateExternCGenericPointerLeaf(node, func->ret, params, subject,
+                                              false);
+        }
+    }
+
+    void validateExternCGenericFunctionSignature(
+        AstFuncDecl *node, StructType *methodParent,
+        const std::unordered_set<std::string> &genericParamNames) {
+        if (!node || !node->isExternC() || genericParamNames.empty()) {
+            return;
+        }
+
+        auto funcName = toStdString(node->name);
+        if (methodParent) {
+            error(node->loc,
+                  "#[extern \"C\"] generic function `" + funcName +
+                      "` must be declared at top level",
+                  "Declare a bodyless top-level import such as "
+                  "`#[extern \"C\"] def malloc[T](size usize) T*`.");
+        }
+        if (node->hasBody()) {
+            error(node->loc,
+                  "#[extern \"C\"] generic function `" + funcName +
+                      "` cannot have a body",
+                  "Declare it as a bodyless import. Generic C FFI v0 shares "
+                  "one C symbol across all type arguments.");
+        }
+        if (node->typeParams) {
+            for (auto *param : *node->typeParams) {
+                if (!param || !param->hasBoundTrait()) {
+                    continue;
+                }
+                error(param->name.loc,
+                      "#[extern \"C\"] generic function `" + funcName +
+                          "` does not support trait bound on `" +
+                          toStdString(param->name.text) + "`",
+                      "Use bare type parameters like `[T]`. Generic C FFI "
+                      "erases type arguments at the C boundary.");
+            }
+        }
+        if (node->args) {
+            for (auto *arg : *node->args) {
+                auto *varDecl = dynamic_cast<AstVarDecl *>(arg);
+                if (!varDecl) {
+                    continue;
+                }
+                if (varDecl->bindingKind == BindingKind::Ref) {
+                    error(varDecl->loc,
+                          "#[extern \"C\"] generic function `" + funcName +
+                              "` parameter `" +
+                              toStdString(varDecl->field) +
+                              "` cannot use `ref` binding",
+                          "Use an explicit pointer type like `i32*` instead.");
+                }
+                if (containsGenericTypeParamReference(varDecl->typeNode,
+                                                      genericParamNames)) {
+                    validateExternCGenericPointerLeaf(
+                        node, varDecl->typeNode, genericParamNames,
+                        "parameter `" + toStdString(varDecl->field) + "`");
+                    continue;
+                }
+                auto *type = resolveType(varDecl->typeNode, false);
+                rejectOpaqueStructByValue(
+                    type, varDecl->typeNode, varDecl->loc,
+                    "parameter `" + toStdString(varDecl->field) +
+                        "` in function `" + funcName + "`");
+                validateExternCType(node, methodParent, "parameter",
+                                    toStdString(varDecl->field),
+                                    type, varDecl->typeNode, varDecl->loc);
+            }
+        }
+        if (!node->retType) {
+            return;
+        }
+        if (containsGenericTypeParamReference(node->retType,
+                                              genericParamNames)) {
+            validateExternCGenericPointerLeaf(node, node->retType,
+                                              genericParamNames,
+                                              "return type");
+            return;
+        }
+        auto *retType = resolveType(node->retType, false);
+        rejectOpaqueStructByValue(retType, node->retType, node->loc,
+                                  "return type of function `" + funcName +
+                                      "`");
+        validateExternCType(node, methodParent, "return type", std::string(),
+                            retType, node->retType, node->loc);
     }
 
     void validateImportAliasConflict(AstStructDecl *structDecl) {
@@ -2040,6 +2267,7 @@ class InterfaceCollector {
         const std::vector<ModuleInterface::GenericParamDecl> *scopedTypeParams =
             nullptr) {
         CollectedFunctionInterface collected;
+        collected.abiKind = node ? node->abiKind : AbiKind::Native;
         validateFunctionReceiverAccess(node, methodParent);
         collected.paramNames = extractParamNames(node);
         collected.paramBindingKinds =
@@ -2057,6 +2285,8 @@ class InterfaceCollector {
         auto genericParamNames = collectGenericParamNames(collected.typeParams);
 
         if (!genericParamNames.empty()) {
+            validateExternCGenericFunctionSignature(node, methodParent,
+                                                    genericParamNames);
             if (node->args) {
                 collected.paramTypeSpellings.reserve(node->args->size());
                 collected.paramTypeNodes.reserve(node->args->size());
@@ -2248,7 +2478,7 @@ class InterfaceCollector {
         for (auto *funcDecl : funcDecls_) {
             auto collected = collectFunctionInterface(funcDecl, nullptr);
             interface_->declareFunction(toStdString(funcDecl->name),
-                                        collected.type,
+                                        collected.type, collected.abiKind,
                                         std::move(collected.paramNames),
                                         std::move(collected.paramBindingKinds),
                                         std::move(collected.paramTypeNodes),

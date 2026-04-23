@@ -1958,6 +1958,9 @@ class FunctionAnalyzer {
         auto baseName = !toStdString(functionDecl.symbolName).empty()
                             ? toStdString(functionDecl.symbolName)
                             : toStdString(functionDecl.localName);
+        if (functionDecl.abiKind == AbiKind::C) {
+            return baseName;
+        }
         std::string symbolName = baseName + "__inst";
         for (const auto &param : functionDecl.typeParams) {
             auto paramName = toStdString(param.localName);
@@ -1980,16 +1983,25 @@ class FunctionAnalyzer {
         const std::unordered_map<std::string, TypeClass *> &genericArgs,
         const std::string &symbolName, const location &loc,
         const ModuleInterface *ownerInterface) {
-        if (auto *existing = global->getObj(string(symbolName))) {
-            auto *func = existing->as<Function>();
-            if (!func) {
-                internalError(
-                    loc,
-                    "generic function instance symbol `" + symbolName +
-                        "` collides with a non-function global",
-                    "This looks like a symbol declaration bug.");
+        const bool sharedExternCSymbol = functionDecl.abiKind == AbiKind::C;
+        if (!sharedExternCSymbol) {
+            if (auto *existing = global->getObj(string(symbolName))) {
+                auto *func = existing->as<Function>();
+                if (!func) {
+                    internalError(
+                        loc,
+                        "generic function instance symbol `" + symbolName +
+                            "` collides with a non-function global",
+                        "This looks like a symbol declaration bug.");
+                }
+                return func;
             }
-            return func;
+        } else if (auto *existing = global->getObj(string(symbolName));
+                   existing && !existing->as<Function>()) {
+            internalError(loc,
+                          "generic C FFI symbol `" + symbolName +
+                              "` collides with a non-function global",
+                          "This looks like a symbol declaration bug.");
         }
 
         std::vector<TypeClass *> argTypes;
@@ -2013,14 +2025,34 @@ class FunctionAnalyzer {
                 "This looks like a generic instantiation bug.");
         }
 
-        auto *llvmFunc = llvm::Function::Create(
-            getFunctionAbiLLVMType(*typeMgr, funcType, false),
-            llvm::Function::ExternalLinkage, llvm::Twine(symbolName),
-            global->module);
-        annotateFunctionAbi(*llvmFunc, funcType->getAbiKind());
+        auto *expectedLLVMType =
+            getFunctionAbiLLVMType(*typeMgr, funcType, false);
+        if (sharedExternCSymbol) {
+            if (auto *existingLLVM = global->module.getFunction(symbolName);
+                existingLLVM &&
+                existingLLVM->getFunctionType() != expectedLLVMType) {
+                error(loc,
+                      "#[extern \"C\"] generic function `" +
+                          toStdString(functionDecl.localName) +
+                          "` does not erase to one C ABI signature",
+                      "Keep generic parameters in bare pointer positions like "
+                      "`T*`, `T const*`, or `T[*]` so every specialization "
+                      "shares the same C symbol.");
+            }
+        }
+
+        auto *llvmFunc = global->module.getFunction(symbolName);
+        if (!llvmFunc) {
+            llvmFunc = llvm::Function::Create(
+                expectedLLVMType, llvm::Function::ExternalLinkage,
+                llvm::Twine(symbolName), global->module);
+            annotateFunctionAbi(*llvmFunc, funcType->getAbiKind());
+        }
         auto *func =
             new Function(llvmFunc, funcType, functionDecl.paramNames, false);
-        global->addObj(string(symbolName), func);
+        if (!sharedExternCSymbol) {
+            global->addObj(string(symbolName), func);
+        }
         return func;
     }
 
@@ -2058,11 +2090,12 @@ class FunctionAnalyzer {
         auto *func = declareGenericFunctionInstance(functionDecl, genericArgs,
                                                     symbolName, loc,
                                                     ownerInterface);
+        const bool sharedExternCSymbol = functionDecl.abiKind == AbiKind::C;
         auto instanceKey =
             buildFunctionInstanceKey(functionDecl, genericArgs, loc,
                                      ownerInterface);
         const bool shouldEmit =
-            claimGenericInstanceEmission(instanceKey);
+            sharedExternCSymbol ? false : claimGenericInstanceEmission(instanceKey);
         recordGenericInstance(instanceKey, templateUnit,
                               shouldEmit ? std::vector<string>{string(symbolName)}
                                          : std::vector<string>{});

@@ -8,5 +8,6 @@
 说明：
 
 - `target_modes.md` 是编译模型文档，不是“当前都已经实现”的功能清单。
-- 当前最小 managed 构建入口已经在本仓库接通；托管运行时实现当前在独立仓库 [lona-MVM](https://github.com/Lona-Lang/lona-MVM)。
+- 当前最小 managed 构建入口已经在本仓库接通；当前稳定实现主要包括 `mbc` 输出模式、基础指针操作限制，以及 `__mvm_malloc[T]` / `__mvm_array_malloc[T]` 分配点 metadata。
+- 托管运行时实现当前在独立仓库 [lona-MVM](https://github.com/Lona-Lang/lona-MVM)。
 - 更偏历史过程的 hosted build v0 文档已移到 `docs/archive/`。

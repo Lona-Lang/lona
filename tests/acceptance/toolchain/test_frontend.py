@@ -414,6 +414,108 @@ def test_managed_bitcode_emits_single_final_module_and_uses_distinct_cache_profi
     )
 
 
+def test_managed_bitcode_marks_mvm_allocations_with_type_metadata(
+    compiler: CompilerHarness,
+) -> None:
+    input_path = compiler.write_source(
+        "managed_alloc_type_metadata.lo",
+        """
+        #[extern "C"]
+        def __mvm_malloc[T]() T*
+
+        #[extern "C"]
+        def __mvm_array_malloc[T](element_count usize) T[*]
+
+        struct Foo {
+            value i32
+        }
+
+        def main() i32 {
+            var obj Foo* = __mvm_malloc[Foo]()
+            var arr Foo[*] = __mvm_array_malloc[Foo](4)
+            ret 0
+        }
+
+        ret main()
+        """,
+    )
+
+    result, output_path = compiler.emit_managed_bc(
+        input_path,
+        output_name="managed-alloc-type-metadata.bc",
+        target="x86_64-unknown-linux-gnu",
+    )
+    result.expect_ok()
+    assert_magic_bytes(output_path, b"BC\xc0\xde")
+
+    bitcode_ir = run_command(
+        ["llvm-dis-18", "-o", "-", str(output_path)],
+        cwd=compiler.repo_root,
+    ).expect_ok().stdout
+    assert_contains(bitcode_ir, "call ptr @__mvm_malloc()", label="managed allocation ir")
+    assert_contains(
+        bitcode_ir,
+        "call ptr @__mvm_array_malloc(i64",
+        label="managed allocation ir",
+    )
+    assert bitcode_ir.count("!lona.alloc.type !") == 2, bitcode_ir
+    assert_contains(
+        bitcode_ir,
+        '!{!"managed_alloc_type_metadata.Foo"}',
+        label="managed allocation ir",
+    )
+
+
+def test_managed_bitcode_keeps_allocation_type_metadata_through_generic_wrapper(
+    compiler: CompilerHarness,
+) -> None:
+    input_path = compiler.write_source(
+        "managed_alloc_type_via_generic_wrapper.lo",
+        """
+        #[extern "C"]
+        def __mvm_malloc[T]() T*
+
+        struct Foo {
+            value i32
+        }
+
+        def new_object[T]() T* {
+            ret __mvm_malloc[T]()
+        }
+
+        def main() i32 {
+            var obj Foo* = new_object[Foo]()
+            ret 0
+        }
+
+        ret main()
+        """,
+    )
+
+    result, output_path = compiler.emit_managed_bc(
+        input_path,
+        output_name="managed-alloc-type-via-generic-wrapper.bc",
+        target="x86_64-unknown-linux-gnu",
+    )
+    result.expect_ok()
+    assert_magic_bytes(output_path, b"BC\xc0\xde")
+
+    bitcode_ir = run_command(
+        ["llvm-dis-18", "-o", "-", str(output_path)],
+        cwd=compiler.repo_root,
+    ).expect_ok().stdout
+    assert_contains(
+        bitcode_ir,
+        "call ptr @__mvm_malloc(), !lona.alloc.type !",
+        label="managed allocation through generic wrapper ir",
+    )
+    assert_contains(
+        bitcode_ir,
+        '!{!"managed_alloc_type_via_generic_wrapper.Foo"}',
+        label="managed allocation through generic wrapper ir",
+    )
+
+
 def test_managed_bitcode_rejects_pointer_casts(compiler: CompilerHarness) -> None:
     input_path = compiler.write_source(
         "managed_pointer_cast_bad.lo",

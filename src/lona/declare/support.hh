@@ -126,6 +126,11 @@ validateExternCFunctionSignature(AstFuncDecl *node, StructType *methodParent,
                                  const std::vector<TypeClass *> &argTypes,
                                  TypeClass *retType);
 
+void
+validateExternCType(AstFuncDecl *node, StructType *methodParent,
+                    const std::string &role, const std::string &bindingName,
+                    TypeClass *type, TypeNode *typeNode, const location &loc);
+
 StructType *
 declareStructType(TypeTable *typeMgr, AstStructDecl *node,
                   CompilationUnit *unit = nullptr,

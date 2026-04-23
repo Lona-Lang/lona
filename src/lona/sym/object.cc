@@ -6,8 +6,68 @@
 #include "func.hh"
 #include "lona/module/compilation_unit.hh"
 #include <cassert>
+#include <llvm-18/llvm/IR/Instructions.h>
+#include <llvm-18/llvm/IR/Metadata.h>
 
 namespace lona {
+
+namespace {
+
+constexpr llvm::StringLiteral kManagedAllocTypeMetadataKey =
+    "lona.alloc.type";
+
+llvm::Function *
+getDirectCallTarget(llvm::Value *calleeValue) {
+    if (!calleeValue) {
+        return nullptr;
+    }
+    return llvm::dyn_cast<llvm::Function>(calleeValue->stripPointerCasts());
+}
+
+TypeClass *
+getManagedAllocationType(llvm::StringRef calleeName, FuncType *funcType) {
+    if (!funcType) {
+        return nullptr;
+    }
+
+    auto *retType = funcType->getRetType();
+    if (calleeName == "__mvm_malloc") {
+        return stripTopLevelConst(getRawPointerPointeeType(retType));
+    }
+    if (calleeName == "__mvm_array_malloc") {
+        auto *elementType = getIndexablePointerElementType(retType);
+        if (!elementType) {
+            elementType = getRawPointerPointeeType(retType);
+        }
+        return stripTopLevelConst(elementType);
+    }
+    return nullptr;
+}
+
+void
+annotateManagedAllocationCall(Scope *scope, llvm::CallInst *call,
+                              llvm::Value *calleeValue, FuncType *funcType) {
+    if (!scope || !scope->managedMode() || !call) {
+        return;
+    }
+
+    auto *callee = getDirectCallTarget(calleeValue);
+    auto *allocationType =
+        callee ? getManagedAllocationType(callee->getName(), funcType)
+               : nullptr;
+    if (!allocationType) {
+        return;
+    }
+
+    auto &context = call->getContext();
+    call->setMetadata(kManagedAllocTypeMetadataKey,
+                      llvm::MDNode::get(
+                          context, llvm::MDString::get(
+                                       context,
+                                       toStdString(allocationType->full_name))));
+}
+
+}  // namespace
 
 llvm::Value *
 reinterpretObjectValueBits(Scope *scope, llvm::Value *value, TypeClass *srcType,
@@ -361,6 +421,7 @@ emitFunctionCall(Scope *scope, llvm::Value *calleeValue, FuncType *funcType,
     }
 
     auto *ret = builder.CreateCall(llvmFuncType, calleeValue, llvmargs);
+    annotateManagedAllocationCall(scope, ret, calleeValue, funcType);
 
     if (retType && abiSignature.hasIndirectResult) {
         return retval;

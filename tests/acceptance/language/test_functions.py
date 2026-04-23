@@ -580,6 +580,61 @@ def test_invalid_ffi_declarations_are_rejected(compiler: CompilerHarness) -> Non
             ],
         ),
         (
+            "ffi_generic_body_bad.lo",
+            """
+            #[extern "C"]
+            def bad[T](size usize) T* {
+                ret null
+            }
+            """,
+            [
+                'semantic error: #[extern "C"] generic function `bad` cannot have a body',
+                'help: Declare it as a bodyless import. Generic C FFI v0 shares one C symbol across all type arguments.',
+            ],
+        ),
+        (
+            "ffi_generic_bound_bad.lo",
+            """
+            trait Hash {
+                def hash() i32
+            }
+
+            #[extern "C"]
+            def bad[T Hash](size usize) T*
+            """,
+            [
+                'semantic error: #[extern "C"] generic function `bad` does not support trait bound on `T`',
+                'help: Use bare type parameters like `[T]`. Generic C FFI erases type arguments at the C boundary.',
+            ],
+        ),
+        (
+            "ffi_generic_value_bad.lo",
+            """
+            #[extern "C"]
+            def bad[T](value T) T
+            """,
+            [
+                'semantic error: #[extern "C"] generic function `bad` uses unsupported parameter `value`: T',
+                'help: Generic C FFI type parameters must appear as bare pointer targets like `T*`, `T const*`, or `T[*]` so every specialization shares one C symbol.',
+            ],
+        ),
+        (
+            "ffi_generic_concrete_aggregate_bad.lo",
+            """
+            struct Pair {
+                left i32
+                right i32
+            }
+
+            #[extern "C"]
+            def bad[T](pair Pair, out T*) i32
+            """,
+            [
+                'semantic error: #[extern "C"] function `bad` uses unsupported parameter `pair`: Pair',
+                'help: Pass a pointer instead. C FFI v0 does not support aggregate values at the boundary yet.',
+            ],
+        ),
+        (
             "ffi_callback_bad.lo",
             '#[extern "C"]\ndef bad(cb (i32: i32)) i32\n',
             [

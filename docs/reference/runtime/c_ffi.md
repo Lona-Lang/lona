@@ -5,6 +5,7 @@
 v0 覆盖的稳定子集：
 
 - top-level `#[extern "C"]` 函数导入
+- bodyless generic `#[extern "C"]` 指针导入
 - top-level `#[extern "C"]` 函数导出
 - bodyless `struct Name` opaque 类型
 - `#[repr "C"] struct`
@@ -12,7 +13,7 @@ v0 覆盖的稳定子集：
 
 v0 不覆盖：
 
-- `managed` 模式下的 C 互操作
+- `managed` 模式下的通用 C 互操作
 - varargs
 - `extern "stdcall"`、Windows ABI 或其它 calling convention
 - union、bitfield、`long double`、vector / SIMD
@@ -25,7 +26,7 @@ v0 不覆盖：
 
 ## 1. 范围
 
-`C FFI v0` 只定义：
+`C FFI v0` 主要定义：
 
 - `native` 目标模式
 - `Linux x86_64 SysV`
@@ -42,6 +43,13 @@ v0 不覆盖：
 
 - 自动把任意 C 头文件导入为 `lona` 模块
 - 平台无关的通用 FFI 抽象
+
+补充一点当前已经实现的例外：
+
+- `mbc` 路径允许一小块托管运行时导入约定
+- 这不是“通用 managed C FFI”
+- 它当前主要用于接 `lona-MVM` 的分配入口
+- 具体约定统一见 [managed_build.md](managed_build.md)
 
 ## 2. 核心规则
 
@@ -116,6 +124,37 @@ def free(p u8*)
 
 - 使用 C ABI
 - 不做 `lona` 模块名 mangling
+
+### 3.1.1 泛型 C 导入
+
+```lona
+#[extern "C"]
+def malloc[T](size usize) T*
+
+def new_object[T]() T* {
+    ret malloc[T](sizeof[T]())
+}
+```
+
+语义：
+
+- 只允许 top-level
+- 只允许 bodyless import
+- 泛型参数只能写成裸 `[T]`
+- 不能写 trait bound，例如 `[T Hash]`
+- 泛型参数只能出现在裸指针目标位置
+  - 允许：`T*`、`T const*`、`T[*]`
+  - 不允许：`T`、`Box[T]*`、`<T, i32>`
+
+效果：
+
+- 所有实例共享同一个 C 符号名
+- 不生成 `__inst__...` 之类的泛型实例后缀
+- 可以把 C 边界的原始指针直接恢复成静态类型指针
+
+这条规则的目的，是让 `malloc[T]`、`calloc[T]` 这类 API 在不写显式指针 cast 的情况下仍然能安全落到同一个 C ABI 符号上。
+
+在 `mbc` 下，这条规则也会被用来声明托管运行时分配入口；具体入口名字、metadata 和运行时约定统一见 [managed_build.md](managed_build.md)。
 
 ### 3.2 导出 `lona` 函数给 C 调用
 

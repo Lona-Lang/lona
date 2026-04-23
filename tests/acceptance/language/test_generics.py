@@ -555,6 +555,33 @@ def test_generic_v0_specialized_function_refs_use_concrete_signature_path(
     )
 
 
+def test_generic_v0_extern_c_pointer_imports_share_one_unmangled_symbol(
+    compiler: CompilerHarness,
+) -> None:
+    ir = _emit_ir(
+        compiler,
+        "generic_extern_c_malloc.lo",
+        """
+        #[extern "C"]
+        def malloc[T](size usize) T*
+
+        def new_object[T]() T* {
+            ret malloc[T](sizeof[T]())
+        }
+
+        def main() i32 {
+            var first i32* = new_object[i32]()
+            var second u8* = malloc[u8](1)
+            ret 0
+        }
+        """,
+    )
+    assert_regex(ir, r"^declare .*ptr @malloc\(i64\)", label="generic extern c ir")
+    assert_not_contains(ir, "malloc__inst", label="generic extern c ir")
+    assert_contains(ir, "call ptr @malloc(i64", label="generic extern c ir")
+    assert ir.count("call ptr @malloc(i64") == 2, ir
+
+
 def test_generic_v0_reports_type_arg_arity_and_inference_diagnostics(
     compiler: CompilerHarness,
 ) -> None:

@@ -190,6 +190,7 @@ ModuleInterface::declareTraitImpl(string selfTypeSpelling, TypeNode *selfTypeNod
 
 bool
 ModuleInterface::declareFunction(string localName, FuncType *type,
+                                 AbiKind abiKind,
                                  std::vector<string> paramNames,
                                  std::vector<BindingKind> paramBindingKinds,
                                  std::vector<TypeNode *> paramTypeNodes,
@@ -198,7 +199,7 @@ ModuleInterface::declareFunction(string localName, FuncType *type,
                                  string returnTypeSpelling,
                                  std::vector<GenericParamDecl> typeParams) {
     type = static_cast<FuncType *>(ownType(type));
-    auto abiKind = type ? type->getAbiKind() : AbiKind::Native;
+    abiKind = type ? type->getAbiKind() : abiKind;
     return localFunctions_
         .emplace(
             localName,

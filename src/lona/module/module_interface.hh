@@ -238,6 +238,7 @@ public:
                                  std::move(typeParams));
     }
     bool declareFunction(string localName, FuncType *type,
+                         AbiKind abiKind = AbiKind::Native,
                          std::vector<string> paramNames = {},
                          std::vector<BindingKind> paramBindingKinds = {},
                          std::vector<TypeNode *> paramTypeNodes = {},
@@ -246,6 +247,7 @@ public:
                          string returnTypeSpelling = "void",
                          std::vector<GenericParamDecl> typeParams = {});
     bool declareFunction(std::string localName, FuncType *type,
+                         AbiKind abiKind = AbiKind::Native,
                          std::vector<string> paramNames = {},
                          std::vector<BindingKind> paramBindingKinds = {},
                          std::vector<TypeNode *> paramTypeNodes = {},
@@ -253,7 +255,7 @@ public:
                          TypeNode *returnTypeNode = nullptr,
                          string returnTypeSpelling = "void",
                          std::vector<GenericParamDecl> typeParams = {}) {
-        return declareFunction(string(std::move(localName)), type,
+        return declareFunction(string(std::move(localName)), type, abiKind,
                                std::move(paramNames),
                                std::move(paramBindingKinds),
                                std::move(paramTypeNodes),

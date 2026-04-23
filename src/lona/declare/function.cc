@@ -145,9 +145,10 @@ isCCompatiblePointerTarget(TypeClass *type) {
 }
 
 void
-validateExternCType(AstFuncDecl *node, StructType *methodParent,
-                    const std::string &role, const std::string &bindingName,
-                    TypeClass *type, TypeNode *typeNode, const location &loc) {
+validateExternCTypeImpl(AstFuncDecl *node, StructType *methodParent,
+                        const std::string &role,
+                        const std::string &bindingName, TypeClass *type,
+                        TypeNode *typeNode, const location &loc) {
     if (!node || !node->isExternC() || !type) {
         return;
     }
@@ -252,6 +253,14 @@ errorInvalidExtensionReceiver(AstFuncDecl *node, const std::string &message,
 }
 
 }  // namespace
+
+void
+validateExternCType(AstFuncDecl *node, StructType *methodParent,
+                    const std::string &role, const std::string &bindingName,
+                    TypeClass *type, TypeNode *typeNode, const location &loc) {
+    validateExternCTypeImpl(node, methodParent, role, bindingName, type,
+                            typeNode, loc);
+}
 
 std::string
 resolveStructMethodOwnerTypeName(StructType *methodParent) {
@@ -547,17 +556,17 @@ validateExternCFunctionSignature(AstFuncDecl *node, StructType *methodParent,
                                       "parameter `" +
                                           toStdString(varDecl->field) +
                                           "` in function `" + funcName + "`");
-            validateExternCType(node, methodParent, "parameter",
-                                toStdString(varDecl->field), argType,
-                                varDecl->typeNode, varDecl->loc);
+            validateExternCTypeImpl(node, methodParent, "parameter",
+                                    toStdString(varDecl->field), argType,
+                                    varDecl->typeNode, varDecl->loc);
             ++argTypeIndex;
         }
     }
 
     rejectOpaqueStructByValue(retType, node->retType, node->loc,
                               "return type of function `" + funcName + "`");
-    validateExternCType(node, methodParent, "return type", std::string(),
-                        retType, node->retType, node->loc);
+    validateExternCTypeImpl(node, methodParent, "return type", std::string(),
+                            retType, node->retType, node->loc);
 }
 
 Function *

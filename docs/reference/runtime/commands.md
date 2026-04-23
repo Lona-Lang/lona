@@ -116,8 +116,7 @@ lona-ir --emit entry --target x86_64-unknown-linux-gnu hosted-entry.o
 - `--emit mbc`
   - 输出单最终 managed linked bitcode
   - 当前输出内容和 `linked-bc` 一样，但会开启 managed 编译模式
-  - 当前 managed 模式只额外限制两类指针操作：任何涉及 `T*` / `T[*]` 的 `cast[T](...)` 都会报错；对 `T[*]` 元素取地址，例如 `&items(0)`，也会报错
-  - 函数调用仍按普通 pointer 传参，不做额外托管态传播
+  - 当前具体语义统一见 [managed_build.md](managed_build.md)
   - 模块级中间产物默认以 bitcode 形式缓存到 `./lona_cache/`
 - `--emit linked-obj`
   - 输出单最终 object

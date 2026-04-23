@@ -116,6 +116,23 @@ flowchart LR
 
 当前 `mbc` 仍然复用 linked bitcode 输出，只打开最基础的 managed 编译约束，还不是完整的托管目标实现。
 
+当前已经稳定接通的 managed 子集主要包括：
+
+- `lona-ir --emit mbc`
+- managed 模式下的基础指针操作限制
+  - 禁止任何涉及 `T*` / `T[*]` 的 `cast[T](...)`
+  - 禁止对 `T[*]` 元素取地址，例如 `&items(0)`
+- generic `#[extern "C"]` 托管分配入口
+  - `__mvm_malloc[T]`
+  - `__mvm_array_malloc[T]`
+- 分配点上的 `!lona.alloc.type` metadata
+  - metadata 只记录 concrete type 的 canonical 名称字符串
+  - 数组对象语义由 `lona-MVM` 根据 `__mvm_array_malloc` 调用目标本身识别
+
+当前 `managed` 的具体使用约定单独整理在：
+
+- [docs/reference/runtime/managed_build.md](docs/reference/runtime/managed_build.md)
+
 `managed` 运行时实现当前放在独立仓库：
 
 - [lona-MVM](https://github.com/Lona-Lang/lona-MVM)
@@ -148,6 +165,7 @@ flowchart LR
 - `--emit mbc` 当前是最小 managed 模式
   - 输出仍然是 linked bitcode
   - 当前主要用于接通 managed 目标链路和基础约束
+  - 当前已经包含 `lona-MVM` 所需的最小分配点 metadata 约定
   - 完整托管运行时能力由 `lona-MVM` 提供
 
 ## 📦 快速开始
