@@ -5,6 +5,7 @@
 #include "lona/sema/operatorresolver.hh"
 #include "lona/support/arena.hh"
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -217,15 +218,18 @@ class HIRSelector : public HIRExpr {
     HIRExpr *parent;
     string fieldName;
     HIRSelectorKind kind_;
+    std::optional<ReceiverMode> receiverMode_;
 
 public:
     HIRSelector(HIRExpr *parent, string fieldName, TypeClass *type = nullptr,
                 const location &loc = location(),
-                HIRSelectorKind kind = HIRSelectorKind::ValueField)
+                HIRSelectorKind kind = HIRSelectorKind::ValueField,
+                std::optional<ReceiverMode> receiverMode = std::nullopt)
         : HIRExpr(type, loc),
           parent(parent),
           fieldName(std::move(fieldName)),
-          kind_(kind) {}
+          kind_(kind),
+          receiverMode_(receiverMode) {}
 
     HIRExpr *getParent() const { return parent; }
     const string &getFieldName() const { return fieldName; }
@@ -234,6 +238,7 @@ public:
         return kind_ == HIRSelectorKind::ValueField;
     }
     bool isMethodSelector() const { return kind_ == HIRSelectorKind::Method; }
+    std::optional<ReceiverMode> receiverMode() const { return receiverMode_; }
 };
 
 class HIRCall : public HIRExpr {

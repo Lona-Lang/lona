@@ -83,12 +83,12 @@ requireStringTagArg(const AstTag *tag, std::size_t index, AstNode *target,
     }
     const auto &arg = (*tag->args)[index];
     if (arg.type != TokenType::ConstStr) {
-        throw DiagnosticError(
-            DiagnosticError::Category::Semantic, arg.loc,
-            "invalid arguments for tag `" + tagName(tag) + "` on " +
-                describeTagTarget(target) + ": argument " +
-                std::to_string(index) + " must be a string literal",
-            usage);
+        throw DiagnosticError(DiagnosticError::Category::Semantic, arg.loc,
+                              "invalid arguments for tag `" + tagName(tag) +
+                                  "` on " + describeTagTarget(target) +
+                                  ": argument " + std::to_string(index) +
+                                  " must be a string literal",
+                              usage);
     }
     return tokenText(&arg);
 }
@@ -412,6 +412,13 @@ normalizeBuiltinTagsImpl(AstNode *node, bool allowTagsInList) {
                 normalizeBuiltinTagsImpl(structDecl->body, false);
             }
             return structDecl;
+        }
+        case AstKind::ExtendDecl: {
+            auto *extendDecl = static_cast<AstExtendDecl *>(node);
+            if (extendDecl->body) {
+                normalizeBuiltinTagsImpl(extendDecl->body, false);
+            }
+            return extendDecl;
         }
         case AstKind::TraitDecl: {
             auto *traitDecl = static_cast<AstTraitDecl *>(node);

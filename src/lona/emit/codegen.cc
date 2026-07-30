@@ -80,10 +80,20 @@ getOrCreateModuleInitResult(GlobalScope *global, const CompilationUnit &unit) {
 }
 
 std::string
-traitWitnessSymbolName(llvm::StringRef traitName, llvm::StringRef selfTypeName) {
-    return "__lona_trait_witness__" +
+traitWitnessSymbolName(llvm::StringRef traitName,
+                       llvm::StringRef selfTypeName) {
+    return "__lona_trait_witness__" + mangleModuleEntryComponent(traitName) +
+           "__" + mangleModuleEntryComponent(selfTypeName);
+}
+
+std::string
+traitValueReceiverThunkSymbolName(llvm::StringRef traitName,
+                                  llvm::StringRef selfTypeName,
+                                  llvm::StringRef methodName) {
+    return "__lona_trait_value_thunk__" +
            mangleModuleEntryComponent(traitName) + "__" +
-           mangleModuleEntryComponent(selfTypeName);
+           mangleModuleEntryComponent(selfTypeName) + "__" +
+           mangleModuleEntryComponent(methodName);
 }
 
 using ByteStringGlobalCache =
@@ -184,9 +194,10 @@ class FunctionCompiler {
         if (!isPointerLikeType(sourceType) && !isPointerLikeType(targetType)) {
             return;
         }
-        error("managed mode does not allow casts involving pointer or "
-              "indexable-pointer values",
-              "Pass pointer values directly without `cast[T](...)`.");
+        error(
+            "managed mode does not allow casts involving pointer or "
+            "indexable-pointer values",
+            "Pass pointer values directly without `cast[T](...)`.");
     }
 
     void ensureManagedIndexAddressAllowed(const HIRExpr *expr) {
@@ -194,13 +205,14 @@ class FunctionCompiler {
             return;
         }
         auto *index = dynamic_cast<const HIRIndex *>(expr);
-        if (!index ||
-            !asUnqualified<IndexablePointerType>(index->getTarget()->getType())) {
+        if (!index || !asUnqualified<IndexablePointerType>(
+                          index->getTarget()->getType())) {
             return;
         }
-        error("managed mode does not allow taking the address of an element "
-              "from an indexable pointer",
-              "Borrow the whole indexable pointer instead of `&ptr(i)`.");
+        error(
+            "managed mode does not allow taking the address of an element "
+            "from an indexable pointer",
+            "Borrow the whole indexable pointer instead of `&ptr(i)`.");
     }
 
     llvm::Constant *buildByteStringArrayConstant(const ::string &bytes) {
@@ -231,8 +243,8 @@ class FunctionCompiler {
         return globalValue;
     }
 
-    ByteStringGlobalKey
-    byteStringGlobalKey(const HIRByteStringLiteral *byteString) const {
+    ByteStringGlobalKey byteStringGlobalKey(
+        const HIRByteStringLiteral *byteString) const {
         ByteStringGlobalKey key;
         if (!byteString) {
             return key;
@@ -250,8 +262,8 @@ class FunctionCompiler {
         return key;
     }
 
-    llvm::GlobalVariable *
-    getOrCreateByteStringGlobal(const HIRByteStringLiteral *byteString) {
+    llvm::GlobalVariable *getOrCreateByteStringGlobal(
+        const HIRByteStringLiteral *byteString) {
         if (!byteString) {
             return nullptr;
         }
@@ -274,8 +286,8 @@ class FunctionCompiler {
                       " requires workspace trait metadata during LLVM lowering",
                   "This looks like a compiler pipeline bug.");
         }
-        auto *traitDecl = unit->findVisibleTraitByResolvedName(
-            string(resolvedName.str()));
+        auto *traitDecl =
+            unit->findVisibleTraitByResolvedName(string(resolvedName.str()));
         if (!traitDecl) {
             error(loc,
                   "unknown trait `" + resolvedName.str() + "` during " +
@@ -309,17 +321,119 @@ class FunctionCompiler {
         return llvm::ArrayType::get(ptrType, slotCount);
     }
 
+    llvm::Function *getOrCreateTraitValueReceiverThunk(
+        const ModuleInterface::TraitDecl &traitDecl,
+        const ModuleInterface::TraitMethodDecl &method, StructType *selfType,
+        Function *callee, const location &loc) {
+        if (!selfType || !callee || !callee->getType()) {
+            error(loc,
+                  "trait value-receiver thunk is missing its concrete method",
+                  "This looks like a compiler pipeline bug.");
+        }
+        auto *concreteType = callee->getType()->as<FuncType>();
+        if (!concreteType || concreteType->getArgTypes().empty() ||
+            callee->receiverMode() != ReceiverMode::Value) {
+            error(loc, "trait value-receiver thunk expected a value method",
+                  "Trait receiver modes must match their implementations.");
+        }
+
+        auto symbolName = traitValueReceiverThunkSymbolName(
+            toStringRef(traitDecl.exportedName),
+            toStringRef(selfType->full_name), toStringRef(method.localName));
+        if (auto *existing = global->module.getFunction(symbolName)) {
+            return existing;
+        }
+
+        auto slotArgTypes = concreteType->getArgTypes();
+        auto *erasedByteType = typeMgr->createConstType(u8Ty);
+        slotArgTypes.front() = typeMgr->createPointerType(erasedByteType);
+        std::vector<BindingKind> slotBindingKinds;
+        slotBindingKinds.reserve(slotArgTypes.size());
+        for (std::size_t i = 0; i < slotArgTypes.size(); ++i) {
+            slotBindingKinds.push_back(concreteType->getArgBindingKind(i));
+        }
+        auto *slotType = typeMgr->getOrCreateFunctionType(
+            slotArgTypes, concreteType->getRetType(),
+            std::move(slotBindingKinds));
+        auto slotAbi = classifyFunctionAbi(*typeMgr, slotType, true);
+        auto *thunk = llvm::Function::Create(
+            slotAbi.llvmType, llvm::GlobalValue::InternalLinkage,
+            llvm::Twine(symbolName), global->module);
+        annotateFunctionAbi(*thunk, slotType->getAbiKind());
+
+        llvm::IRBuilderBase::InsertPointGuard insertPointGuard(global->builder);
+        auto *entry = llvm::BasicBlock::Create(context, "entry", thunk);
+        global->builder.SetInsertPoint(entry);
+        FuncScope thunkScope(global);
+
+        std::vector<ObjectPtr> callArgs;
+        callArgs.reserve(concreteType->getArgTypes().size());
+        auto llvmArg = thunk->arg_begin();
+        llvm::Value *resultSlot = nullptr;
+        if (slotAbi.hasIndirectResult) {
+            resultSlot = &*llvmArg;
+            ++llvmArg;
+        }
+
+        auto self = selfType->newObj(Object::VARIABLE);
+        self->setllvmValue(&*llvmArg);
+        callArgs.emplace_back(self);
+        ++llvmArg;
+
+        for (std::size_t sourceIndex = 1; sourceIndex < slotArgTypes.size();
+             ++sourceIndex, ++llvmArg) {
+            auto *argType = slotArgTypes[sourceIndex];
+            const auto &argInfo = slotAbi.argInfo(sourceIndex);
+            ObjectPtr arg;
+            if (argInfo.passKind == AbiPassKind::IndirectRef ||
+                argInfo.passKind == AbiPassKind::IndirectValue) {
+                arg = argType->newObj(Object::VARIABLE);
+                arg->setllvmValue(&*llvmArg);
+            } else if (argInfo.packedRegisterAggregate) {
+                arg = argType->newObj(Object::VARIABLE);
+                arg->createllvmValue(&thunkScope);
+                storeNativeAbiDirectValue(global->builder, *typeMgr, argType,
+                                          &*llvmArg, arg->getllvmValue());
+            } else {
+                arg = argType->newObj(Object::REG_VAL | Object::READONLY);
+                arg->bindllvmValue(&*llvmArg);
+            }
+            callArgs.push_back(std::move(arg));
+        }
+
+        auto result = emitFunctionCall(&thunkScope, callee->getllvmValue(),
+                                       concreteType, callArgs, true);
+        auto *retType = concreteType->getRetType();
+        if (!retType) {
+            global->builder.CreateRetVoid();
+        } else if (slotAbi.hasIndirectResult) {
+            auto destination = retType->newObj(Object::VARIABLE);
+            destination->setllvmValue(resultSlot);
+            destination->set(&thunkScope, result.get());
+            global->builder.CreateRetVoid();
+        } else if (slotAbi.resultInfo.packedRegisterAggregate) {
+            auto *retValue = loadNativeAbiDirectValue(
+                global->builder, *typeMgr, retType, result->getllvmValue());
+            global->builder.CreateRet(retValue);
+        } else {
+            global->builder.CreateRet(result->get(&thunkScope));
+        }
+        return thunk;
+    }
+
     llvm::GlobalVariable *getOrCreateTraitWitnessTable(
         const ModuleInterface::TraitDecl &traitDecl, StructType *selfType,
         const location &loc) {
         if (!selfType) {
-            error(loc,
-                  "trait witness table lowering requires a concrete struct type",
-                  "This looks like a compiler pipeline bug.");
+            error(
+                loc,
+                "trait witness table lowering requires a concrete struct type",
+                "This looks like a compiler pipeline bug.");
         }
 
-        auto symbolName = traitWitnessSymbolName(
-            toStringRef(traitDecl.exportedName), toStringRef(selfType->full_name));
+        auto symbolName =
+            traitWitnessSymbolName(toStringRef(traitDecl.exportedName),
+                                   toStringRef(selfType->full_name));
         if (auto *existing = global->module.getGlobalVariable(symbolName)) {
             return existing;
         }
@@ -343,23 +457,27 @@ class FunctionCompiler {
                           "` for trait witness lowering",
                       "This looks like a compiler pipeline bug.");
             }
-            auto *calleeConstant =
-                llvm::dyn_cast<llvm::Constant>(callee->getllvmValue());
+            auto *calleeConstant = llvm::dyn_cast<llvm::Constant>(
+                method.receiverMode == ReceiverMode::Value
+                    ? static_cast<llvm::Value *>(
+                          getOrCreateTraitValueReceiverThunk(
+                              traitDecl, method, selfType, callee, loc))
+                    : callee->getllvmValue());
             if (!calleeConstant) {
-                error(loc,
-                      "trait witness lowering expected a constant method symbol",
-                      "This looks like a compiler pipeline bug.");
+                error(
+                    loc,
+                    "trait witness lowering expected a constant method symbol",
+                    "This looks like a compiler pipeline bug.");
             }
-            slots.push_back(llvm::ConstantExpr::getPointerCast(
-                calleeConstant, ptrType));
+            slots.push_back(
+                llvm::ConstantExpr::getPointerCast(calleeConstant, ptrType));
         }
 
         auto *witnessType = getTraitWitnessLLVMType(traitDecl.methods.size());
         auto *initializer = llvm::ConstantArray::get(witnessType, slots);
-        return new llvm::GlobalVariable(
-            global->module, witnessType, true,
-            llvm::GlobalValue::InternalLinkage, initializer,
-            llvm::Twine(symbolName));
+        return new llvm::GlobalVariable(global->module, witnessType, true,
+                                        llvm::GlobalValue::InternalLinkage,
+                                        initializer, llvm::Twine(symbolName));
     }
 
     ObjectPtr materializeLocal(TypeClass *type, Object *initVal) {
@@ -390,9 +508,9 @@ class FunctionCompiler {
             error("trait object cast requires an addressable source value");
         }
 
-        const auto *traitDecl = requireVisibleTraitDecl(
-            toStringRef(dynType->traitName()), cast->getLocation(),
-            "trait object cast");
+        const auto *traitDecl =
+            requireVisibleTraitDecl(toStringRef(dynType->traitName()),
+                                    cast->getLocation(), "trait object cast");
         auto *witness = getOrCreateTraitWitnessTable(*traitDecl, selfType,
                                                      cast->getLocation());
         auto *llvmDynType = scope->getLLVMType(cast->getType());
@@ -420,9 +538,9 @@ class FunctionCompiler {
             error("trait object call is missing its slot function type");
         }
 
-        const auto *traitDecl = requireVisibleTraitDecl(
-            toStringRef(call->getTraitName()), call->getLocation(),
-            "trait object call");
+        const auto *traitDecl =
+            requireVisibleTraitDecl(toStringRef(call->getTraitName()),
+                                    call->getLocation(), "trait object call");
         if (call->getSlotIndex() >= traitDecl->methods.size()) {
             error("trait object call slot index is out of range");
         }
@@ -431,8 +549,8 @@ class FunctionCompiler {
         auto *ptrType = llvm::PointerType::getUnqual(context);
         auto *dataPtr =
             scope->builder.CreateExtractValue(aggregate, {0}, "trait.data");
-        auto *witnessPtr = scope->builder.CreateExtractValue(
-            aggregate, {1}, "trait.witness");
+        auto *witnessPtr =
+            scope->builder.CreateExtractValue(aggregate, {1}, "trait.witness");
         if (dataPtr->getType() != ptrType) {
             dataPtr = scope->builder.CreatePointerCast(dataPtr, ptrType);
         }
@@ -463,7 +581,8 @@ class FunctionCompiler {
         return emitFunctionCall(scope, slotValue, slotFuncType, args, true);
     }
 
-    ObjectPtr materializeBinding(const ObjectPtr &obj, Object *initVal = nullptr) {
+    ObjectPtr materializeBinding(const ObjectPtr &obj,
+                                 Object *initVal = nullptr) {
         if (!obj) {
             error("missing binding object");
         }
@@ -608,8 +727,7 @@ class FunctionCompiler {
                 aggregate = scope->builder.CreateInsertValue(
                     aggregate, itemValue, {static_cast<unsigned>(i)});
             }
-            auto result =
-                tupleType->newObj(Object::REG_VAL | Object::READONLY);
+            auto result = tupleType->newObj(Object::REG_VAL | Object::READONLY);
             result->bindllvmValue(aggregate);
             return result;
         }
@@ -681,8 +799,7 @@ class FunctionCompiler {
                 aggregate = scope->builder.CreateInsertValue(
                     aggregate, item->get(scope), {static_cast<unsigned>(i)});
             }
-            auto result =
-                arrayType->newObj(Object::REG_VAL | Object::READONLY);
+            auto result = arrayType->newObj(Object::REG_VAL | Object::READONLY);
             result->bindllvmValue(aggregate);
             return result;
         }
@@ -771,8 +888,9 @@ class FunctionCompiler {
             }
             if (!isConstQualificationConvertible(pointeeType,
                                                  valueObj->getType())) {
-                error("implicit borrow lowering expected a compatible "
-                      "receiver type");
+                error(
+                    "implicit borrow lowering expected a compatible "
+                    "receiver type");
             }
             return makeReadonlyValue(borrow->getType(),
                                      valueObj->getllvmValue());
@@ -806,7 +924,8 @@ class FunctionCompiler {
                 selector && selector->isMethodSelector()) {
                 auto parent = compileExpr(selector->getParent());
                 Object *parentObj = parent.get();
-                auto *structType = asUnqualified<StructType>(parentObj->getType());
+                auto *structType =
+                    asUnqualified<StructType>(parentObj->getType());
                 if (!structType) {
                     error("selector call parent must be a struct value");
                 }
@@ -818,16 +937,23 @@ class FunctionCompiler {
                 } else if (structType->isAppliedTemplateInstance() &&
                            structType->getMethodType(methodName)) {
                     auto *methodType = structType->getMethodType(methodName);
+                    auto receiverMode =
+                        structType->getMethodReceiverMode(methodName);
+                    if (!receiverMode) {
+                        error(
+                            "struct method is missing receiver mode metadata");
+                    }
                     auto symbolName =
                         declarationsupport_impl::resolveStructMethodSymbolName(
-                            structType, methodName);
+                            structType, methodName, *receiverMode);
                     auto *llvmFunc = scope->module.getFunction(symbolName);
                     if (methodType && llvmFunc) {
                         funcType = methodType;
                         calleeValue = llvmFunc;
                     }
                 } else if (auto *traitMethodType =
-                               structType->getTraitMethodTypeByKey(methodName)) {
+                               structType->getTraitMethodTypeByKey(
+                                   methodName)) {
                     auto *bound =
                         scope->getMethodFunction(structType, methodName);
                     if (bound) {
@@ -840,24 +966,42 @@ class FunctionCompiler {
                 if (!calleeValue || !funcType) {
                     error("unknown struct method");
                 }
-                ObjectPtr materializedParent;
-                if (!parentObj->isVariable() || parentObj->isRegVal() ||
-                    !parentObj->getllvmValue()) {
-                    materializedParent =
-                        materializeLocal(parentObj->getType(), parentObj);
-                    parentObj = materializedParent.get();
-                }
                 auto *selfType = funcType && !funcType->getArgTypes().empty()
                                      ? funcType->getArgTypes().front()
                                      : nullptr;
-                auto *selfPointeeType = getRawPointerPointeeType(selfType);
-                if (!selfType || !selfPointeeType ||
-                    !isConstQualificationConvertible(selfPointeeType,
-                                                     parentObj->getType())) {
-                    error("method lowering expected an implicit self pointer");
+                if (!selfType) {
+                    error("method lowering expected an implicit self argument");
                 }
-                args.push_back(
-                    makeReadonlyValue(selfType, parentObj->getllvmValue()));
+                auto receiverMode = selector->receiverMode();
+                if (!receiverMode) {
+                    error("method selector is missing receiver mode metadata");
+                }
+                if (*receiverMode == ReceiverMode::Value) {
+                    if (!isByteCopyCompatible(selfType, parentObj->getType())) {
+                        error(
+                            "method lowering found an incompatible value "
+                            "receiver");
+                    }
+                    args.push_back(parent);
+                } else {
+                    ObjectPtr materializedParent;
+                    if (!parentObj->isVariable() || parentObj->isRegVal() ||
+                        !parentObj->getllvmValue()) {
+                        materializedParent =
+                            materializeLocal(parentObj->getType(), parentObj);
+                        parentObj = materializedParent.get();
+                    }
+                    auto *selfPointeeType = getRawPointerPointeeType(selfType);
+                    if (!selfPointeeType ||
+                        !isConstQualificationConvertible(
+                            selfPointeeType, parentObj->getType())) {
+                        error(
+                            "method lowering found an incompatible borrowed "
+                            "receiver");
+                    }
+                    args.push_back(
+                        makeReadonlyValue(selfType, parentObj->getllvmValue()));
+                }
                 hasImplicitSelf = true;
             } else if (auto *callee =
                            getDirectFunctionCallee(call->getCallee())) {
@@ -1736,9 +1880,12 @@ public:
         returnByPointer = abiSignature.hasIndirectResult;
 
         if (hirFunc->hasSelfBinding()) {
-            funcScope->structTy =
-                asUnqualified<StructType>(getRawPointerPointeeType(
-                    hirFunc->getSelfBinding().object->getType()));
+            auto *selfType = hirFunc->getSelfBinding().object->getType();
+            auto *selfValueType = getRawPointerPointeeType(selfType);
+            if (!selfValueType) {
+                selfValueType = selfType;
+            }
+            funcScope->structTy = asUnqualified<StructType>(selfValueType);
         }
 
         if (debug) {
@@ -1756,7 +1903,7 @@ public:
             functionError(hirFunc, "not all paths return a value");
         }
 
-        size_t llvmArgIndex = 0;
+        size_t llvmArgIndex = returnByPointer ? 1 : 0;
         if (hirFunc->hasSelfBinding()) {
             auto &binding = hirFunc->getSelfBinding();
             auto argIt = llvmFunc->arg_begin();
@@ -1768,7 +1915,8 @@ public:
                 auto incomingSelf =
                     binding.object->getType()->newObj(Object::VARIABLE);
                 incomingSelf->setllvmValue(&*argIt);
-                selfObj = materializeBinding(binding.object, incomingSelf.get());
+                selfObj =
+                    materializeBinding(binding.object, incomingSelf.get());
             } else if (passKind == AbiPassKind::IndirectValue) {
                 selfObj =
                     materializeIndirectValueBinding(binding.object, &*argIt);
@@ -1792,10 +1940,8 @@ public:
                         "function is missing hidden return slot argument");
                 }
                 auto argIt = llvmFunc->arg_begin();
-                std::advance(argIt, llvmArgIndex);
                 retSlot = retType->newObj(Object::VARIABLE);
                 retSlot->setllvmValue(&*argIt);
-                ++llvmArgIndex;
             } else {
                 retSlot = materializeLocal(retType, nullptr);
             }

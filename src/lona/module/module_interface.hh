@@ -20,12 +20,6 @@ class TupleType;
 class AnyType;
 class AstNode;
 
-enum class ExtensionReceiverKind {
-    Value,
-    BorrowedReadOnly,
-    BorrowedReadWrite,
-};
-
 class ModuleInterface {
 public:
     enum class TopLevelLookupKind {
@@ -50,7 +44,7 @@ public:
 
     struct MethodTemplateDecl {
         string localName;
-        AccessKind receiverAccess = AccessKind::GetOnly;
+        ReceiverMode receiverMode = ReceiverMode::BorrowedReadOnly;
         std::vector<string> paramNames;
         std::vector<BindingKind> paramBindingKinds;
         std::vector<TypeNode *> paramTypeNodes;
@@ -77,17 +71,21 @@ public:
 
     struct TraitMethodDecl {
         string localName;
-        AccessKind receiverAccess = AccessKind::GetOnly;
+        ReceiverMode receiverMode = ReceiverMode::BorrowedReadOnly;
         std::vector<string> paramNames;
         std::vector<BindingKind> paramBindingKinds;
+        std::vector<TypeNode *> paramTypeNodes;
         std::vector<string> paramTypeSpellings;
+        TypeNode *returnTypeNode = nullptr;
         string returnTypeSpelling;
+        bool hasSelfType = false;
     };
 
     struct TraitDecl {
         string localName;
         string exportedName;
         std::vector<TraitMethodDecl> methods;
+        const ModuleInterface *ownerInterface = nullptr;
 
         const TraitMethodDecl *findMethod(const ::string &name) const {
             for (const auto &method : methods) {
@@ -130,11 +128,9 @@ public:
     struct ExtensionMethodDecl {
         string localName;
         string symbolName;
-        ExtensionReceiverKind receiverKind =
-            ExtensionReceiverKind::Value;
-        string receiverTypeSpelling;
-        string receiverBaseTypeSpelling;
-        TypeNode *receiverTypeNode = nullptr;
+        ReceiverMode receiverMode = ReceiverMode::BorrowedReadOnly;
+        string targetTypeSpelling;
+        TypeNode *targetTypeNode = nullptr;
         FuncType *type = nullptr;
         std::vector<string> paramNames;
         std::vector<BindingKind> paramBindingKinds;
@@ -255,14 +251,11 @@ public:
                          TypeNode *returnTypeNode = nullptr,
                          string returnTypeSpelling = "void",
                          std::vector<GenericParamDecl> typeParams = {}) {
-        return declareFunction(string(std::move(localName)), type, abiKind,
-                               std::move(paramNames),
-                               std::move(paramBindingKinds),
-                               std::move(paramTypeNodes),
-                               std::move(paramTypeSpellings),
-                               returnTypeNode,
-                               std::move(returnTypeSpelling),
-                               std::move(typeParams));
+        return declareFunction(
+            string(std::move(localName)), type, abiKind, std::move(paramNames),
+            std::move(paramBindingKinds), std::move(paramTypeNodes),
+            std::move(paramTypeSpellings), returnTypeNode,
+            std::move(returnTypeSpelling), std::move(typeParams));
     }
     bool declareExtensionMethod(ExtensionMethodDecl method);
     bool declareGlobal(string localName, TypeClass *type,
@@ -325,9 +318,9 @@ public:
         const std::string &appliedName, StructDeclKind declKind,
         string appliedTemplateName = {},
         std::vector<TypeClass *> appliedTypeArgs = {}) {
-        return getOrCreateAppliedStructType(
-            string(appliedName), declKind, std::move(appliedTemplateName),
-            std::move(appliedTypeArgs));
+        return getOrCreateAppliedStructType(string(appliedName), declKind,
+                                            std::move(appliedTemplateName),
+                                            std::move(appliedTypeArgs));
     }
     PointerType *getOrCreatePointerType(TypeClass *pointeeType);
     IndexablePointerType *getOrCreateIndexablePointerType(
@@ -358,21 +351,25 @@ public:
     const TraitDecl *findTrait(const std::string &localName) const {
         return findTrait(string(localName));
     }
-    const TraitDecl *findTraitByExportedName(const ::string &exportedName) const;
-    const TraitDecl *findTraitByExportedName(const std::string &exportedName) const {
+    const TraitDecl *findTraitByExportedName(
+        const ::string &exportedName) const;
+    const TraitDecl *findTraitByExportedName(
+        const std::string &exportedName) const {
         return findTraitByExportedName(string(exportedName));
     }
     const TraitImplDecl *findTraitImpl(const ::string &traitName,
                                        const ::string &selfTypeSpelling) const;
-    const TraitImplDecl *findTraitImpl(const std::string &traitName,
-                                       const std::string &selfTypeSpelling) const {
+    const TraitImplDecl *findTraitImpl(
+        const std::string &traitName,
+        const std::string &selfTypeSpelling) const {
         return findTraitImpl(string(traitName), string(selfTypeSpelling));
     }
     const GlobalDecl *findGlobal(const ::string &localName) const;
     const GlobalDecl *findGlobal(const std::string &localName) const {
         return findGlobal(string(localName));
     }
-    const ImportedModuleDecl *findImportedModule(const ::string &localName) const;
+    const ImportedModuleDecl *findImportedModule(
+        const ::string &localName) const;
     const ImportedModuleDecl *findImportedModule(
         const std::string &localName) const {
         return findImportedModule(string(localName));
@@ -391,9 +388,7 @@ public:
     const std::unordered_map<string, TraitDecl> &traits() const {
         return localTraits_;
     }
-    const std::vector<TraitImplDecl> &traitImpls() const {
-        return traitImpls_;
-    }
+    const std::vector<TraitImplDecl> &traitImpls() const { return traitImpls_; }
     const std::unordered_map<string, FunctionDecl> &functions() const {
         return localFunctions_;
     }
@@ -403,7 +398,8 @@ public:
     const std::unordered_map<string, GlobalDecl> &globals() const {
         return localGlobals_;
     }
-    const std::unordered_map<string, ImportedModuleDecl> &importedModules() const {
+    const std::unordered_map<string, ImportedModuleDecl> &importedModules()
+        const {
         return importedModules_;
     }
 };

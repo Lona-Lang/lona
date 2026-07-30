@@ -48,9 +48,7 @@ ModuleInterface::ModuleInterface(string sourcePath, string moduleKey,
       modulePath_(std::move(modulePath)),
       sourceHash_(sourceHash) {}
 
-ModuleInterface::~ModuleInterface() {
-    releaseOwnedTypes();
-}
+ModuleInterface::~ModuleInterface() { releaseOwnedTypes(); }
 
 string
 ModuleInterface::exportedNameFor(const ::string &localName) const {
@@ -158,9 +156,8 @@ bool
 ModuleInterface::declareTrait(string localName,
                               std::vector<TraitMethodDecl> methods) {
     return localTraits_
-        .emplace(localName,
-                 TraitDecl{localName, exportedNameFor(localName),
-                           std::move(methods)})
+        .emplace(localName, TraitDecl{localName, exportedNameFor(localName),
+                                      std::move(methods), this})
         .second;
 }
 
@@ -176,40 +173,35 @@ ModuleInterface::defineTraitMethods(string localName,
 }
 
 bool
-ModuleInterface::declareTraitImpl(string selfTypeSpelling, TypeNode *selfTypeNode,
-                                  string traitName, bool hasBody,
+ModuleInterface::declareTraitImpl(string selfTypeSpelling,
+                                  TypeNode *selfTypeNode, string traitName,
+                                  bool hasBody,
                                   std::vector<GenericParamDecl> typeParams,
                                   AstTraitImplDecl *syntaxDecl,
                                   std::vector<MethodTemplateDecl> bodyMethods) {
-    traitImpls_.push_back(TraitImplDecl{std::move(selfTypeSpelling),
-                                        selfTypeNode, std::move(traitName),
-                                        hasBody, std::move(typeParams),
-                                        syntaxDecl, std::move(bodyMethods)});
+    traitImpls_.push_back(TraitImplDecl{
+        std::move(selfTypeSpelling), selfTypeNode, std::move(traitName),
+        hasBody, std::move(typeParams), syntaxDecl, std::move(bodyMethods)});
     return true;
 }
 
 bool
-ModuleInterface::declareFunction(string localName, FuncType *type,
-                                 AbiKind abiKind,
-                                 std::vector<string> paramNames,
-                                 std::vector<BindingKind> paramBindingKinds,
-                                 std::vector<TypeNode *> paramTypeNodes,
-                                 std::vector<string> paramTypeSpellings,
-                                 TypeNode *returnTypeNode,
-                                 string returnTypeSpelling,
-                                 std::vector<GenericParamDecl> typeParams) {
+ModuleInterface::declareFunction(
+    string localName, FuncType *type, AbiKind abiKind,
+    std::vector<string> paramNames, std::vector<BindingKind> paramBindingKinds,
+    std::vector<TypeNode *> paramTypeNodes,
+    std::vector<string> paramTypeSpellings, TypeNode *returnTypeNode,
+    string returnTypeSpelling, std::vector<GenericParamDecl> typeParams) {
     type = static_cast<FuncType *>(ownType(type));
     abiKind = type ? type->getAbiKind() : abiKind;
     return localFunctions_
-        .emplace(
-            localName,
-            FunctionDecl{localName, functionSymbolNameFor(localName, abiKind),
-                         abiKind, type, std::move(paramNames),
-                         std::move(paramBindingKinds),
-                         std::move(paramTypeNodes),
-                         std::move(paramTypeSpellings), returnTypeNode,
-                         std::move(returnTypeSpelling),
-                         std::move(typeParams)})
+        .emplace(localName,
+                 FunctionDecl{
+                     localName, functionSymbolNameFor(localName, abiKind),
+                     abiKind, type, std::move(paramNames),
+                     std::move(paramBindingKinds), std::move(paramTypeNodes),
+                     std::move(paramTypeSpellings), returnTypeNode,
+                     std::move(returnTypeSpelling), std::move(typeParams)})
         .second;
 }
 
@@ -273,10 +265,9 @@ ModuleInterface::getOrCreateAnyType() {
 }
 
 StructType *
-ModuleInterface::getOrCreateAppliedStructType(const ::string &appliedName,
-                                              StructDeclKind declKind,
-                                              string appliedTemplateName,
-                                              std::vector<TypeClass *> appliedTypeArgs) {
+ModuleInterface::getOrCreateAppliedStructType(
+    const ::string &appliedName, StructDeclKind declKind,
+    string appliedTemplateName, std::vector<TypeClass *> appliedTypeArgs) {
     auto found = derivedTypes_.find(appliedName);
     if (found != derivedTypes_.end()) {
         auto *structType = found->second->as<StructType>();
@@ -284,16 +275,15 @@ ModuleInterface::getOrCreateAppliedStructType(const ::string &appliedName,
             structType->setDeclKind(declKind);
             if (!appliedTemplateName.empty()) {
                 structType->setAppliedTemplateInfo(
-                    std::move(appliedTemplateName),
-                    std::move(appliedTypeArgs));
+                    std::move(appliedTemplateName), std::move(appliedTypeArgs));
             }
         }
         return structType;
     }
 
-    auto *typePtr = static_cast<StructType *>(ownType(new StructType(
-        appliedName, declKind, std::move(appliedTemplateName),
-        std::move(appliedTypeArgs))));
+    auto *typePtr = static_cast<StructType *>(ownType(
+        new StructType(appliedName, declKind, std::move(appliedTemplateName),
+                       std::move(appliedTypeArgs))));
     derivedTypes_[appliedName] = typePtr;
     return typePtr->as<StructType>();
 }
@@ -364,8 +354,7 @@ ModuleInterface::getOrCreateConstType(TypeClass *baseType) {
         return found->second->as<ConstType>();
     }
 
-    auto *typePtr =
-        static_cast<ConstType *>(ownType(new ConstType(baseType)));
+    auto *typePtr = static_cast<ConstType *>(ownType(new ConstType(baseType)));
     derivedTypes_[typeName] = typePtr;
     return typePtr->as<ConstType>();
 }
@@ -398,8 +387,8 @@ ModuleInterface::getOrCreateTupleType(
         return found->second->as<TupleType>();
     }
 
-    auto *typePtr = static_cast<TupleType *>(ownType(
-        new TupleType(std::vector<TypeClass *>(itemTypes))));
+    auto *typePtr = static_cast<TupleType *>(
+        ownType(new TupleType(std::vector<TypeClass *>(itemTypes))));
     derivedTypes_[tupleName] = typePtr;
     return typePtr->as<TupleType>();
 }
@@ -433,9 +422,9 @@ ModuleInterface::getOrCreateFunctionType(
         return found->second->as<FuncType>();
     }
 
-    auto *typePtr = static_cast<FuncType *>(ownType(new FuncType(
-        std::vector<TypeClass *>(argTypes), retType, funcTypeName,
-        std::move(argBindingKinds), abiKind)));
+    auto *typePtr = static_cast<FuncType *>(ownType(
+        new FuncType(std::vector<TypeClass *>(argTypes), retType, funcTypeName,
+                     std::move(argBindingKinds), abiKind)));
     derivedTypes_[funcTypeName] = typePtr;
     return typePtr->as<FuncType>();
 }

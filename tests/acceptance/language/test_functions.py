@@ -267,7 +267,9 @@ def test_function_pointer_related_diagnostics(compiler: CompilerHarness) -> None
                 ret 0
             }
             """,
-            ["function reference target must name a top-level function: `foo`"],
+            [
+                "function reference target must name a top-level function or type-qualified method: `foo`"
+            ],
         ),
         (
             "func_ptr_uninit.lo",
@@ -978,12 +980,12 @@ def test_type_qualified_method_calls_support_explicit_self_pointers(
     assert_contains(ir, "define i32 @main()", label="type-qualified method ir")
     assert_regex(
         ir,
-        r"call i32 @.*Counter\.read\(ptr ",
+        r"call i32 @.*Counter\.read\.__receiver_get\(ptr ",
         label="type-qualified method ir",
     )
     assert_regex(
         ir,
-        r"call i32 @.*Counter\.inc\(ptr ",
+        r"call i32 @.*Counter\.inc\.__receiver_set\(ptr ",
         label="type-qualified method ir",
     )
 
@@ -1014,10 +1016,10 @@ def test_type_qualified_method_calls_require_matching_self_pointers(
                 var counter = Counter(value = 41)
                 ret Counter.read(counter)
             }
-            """,
-            [
-                "type-qualified receiver must be passed as an explicit self pointer",
-                "Counter.read(&value, ...)",
+                """,
+                [
+                    "borrowed method `read` requires an explicit self pointer",
+                    "Counter.read(&value, ...)",
             ],
         ),
         (
@@ -1029,11 +1031,11 @@ def test_type_qualified_method_calls_require_matching_self_pointers(
                 ret Counter.read(&other)
             }
             """,
-            [
-                "type-qualified receiver type mismatch for `Counter.read`",
-                "Counter*`",
-                "Other*`",
-            ],
+                [
+                    "type-qualified receiver type mismatch for `Counter.read`",
+                    "expected `type_qualified_method_receiver_type_bad.Counter`",
+                    "got `type_qualified_method_receiver_type_bad.Other*`",
+                ],
         ),
     ]
 

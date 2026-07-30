@@ -2,6 +2,7 @@
 
 #include "lona/ast/type_node_string.hh"
 #include "lona/err/err.hh"
+#include <unordered_set>
 
 namespace lona {
 namespace declarationsupport_impl {
@@ -126,6 +127,26 @@ validateStructDeclShape(AstStructDecl *node) {
               "Use `struct " + toStdString(node->name) +
                   "` for an opaque declaration, or add a body without the "
                   "opaque form.");
+    }
+    auto *body = dynamic_cast<AstStatList *>(node->body);
+    if (!body) {
+        return;
+    }
+    std::unordered_set<std::string> methodNames;
+    for (auto *entry : body->getBody()) {
+        auto *method = dynamic_cast<AstFuncDecl *>(entry);
+        if (!method) {
+            continue;
+        }
+        auto methodName = toStdString(method->name);
+        if (!methodNames.emplace(methodName).second) {
+            error(method->loc,
+                  "duplicate method `" + methodName + "` in struct `" +
+                      toStdString(node->name) + "`",
+                  "Method names must be unique within the same struct; "
+                  "receiver mode and generic parameters do not form an "
+                  "overload.");
+        }
     }
 }
 

@@ -217,5 +217,5 @@ def test_method_call_on_temporary_still_uses_pointer_receiver(compiler: Compiler
         """,
     )
     ir = compiler.emit_ir(input_path).expect_ok().stdout
-    assert_regex(ir, r"^define i32 @.*Counter\.bump\(ptr ", label="method temp ir")
-    assert_regex(ir, r"call i32 @.*Counter\.bump\(ptr ", label="method temp ir")
+    assert_regex(ir, r"^define i32 @.*Counter\.bump\.__receiver_set\(ptr ", label="method temp ir")
+    assert_regex(ir, r"call i32 @.*Counter\.bump\.__receiver_set\(ptr ", label="method temp ir")

@@ -13,8 +13,7 @@ namespace lona {
 
 namespace {
 
-constexpr llvm::StringLiteral kManagedAllocTypeMetadataKey =
-    "lona.alloc.type";
+constexpr llvm::StringLiteral kManagedAllocTypeMetadataKey = "lona.alloc.type";
 
 llvm::Function *
 getDirectCallTarget(llvm::Value *calleeValue) {
@@ -60,11 +59,11 @@ annotateManagedAllocationCall(Scope *scope, llvm::CallInst *call,
     }
 
     auto &context = call->getContext();
-    call->setMetadata(kManagedAllocTypeMetadataKey,
-                      llvm::MDNode::get(
-                          context, llvm::MDString::get(
-                                       context,
-                                       toStdString(allocationType->full_name))));
+    call->setMetadata(
+        kManagedAllocTypeMetadataKey,
+        llvm::MDNode::get(
+            context, llvm::MDString::get(
+                         context, toStdString(allocationType->full_name))));
 }
 
 }  // namespace
@@ -406,17 +405,11 @@ emitFunctionCall(Scope *scope, llvm::Value *calleeValue, FuncType *funcType,
             coerceObjectValueToType(scope, arg.get(), expectedType));
     };
 
-    std::size_t startIndex = 0;
-    if (hasImplicitSelf && !args.empty()) {
-        appendSourceArgument(0);
-        startIndex = 1;
-    }
-
     if (retType && abiSignature.hasIndirectResult) {
         llvmargs.push_back(retval->getllvmValue());
     }
 
-    for (std::size_t i = startIndex; i < args.size(); ++i) {
+    for (std::size_t i = 0; i < args.size(); ++i) {
         appendSourceArgument(i);
     }
 
@@ -452,7 +445,7 @@ emitFunctionCall(Scope *scope, llvm::Value *calleeValue, FuncType *funcType,
 ObjectPtr
 Function::call(Scope *scope, const std::vector<ObjectPtr> &args) {
     auto *funcType = type->as<FuncType>();
-    return emitFunctionCall(scope, val, funcType, args, hasImplicitSelf_);
+    return emitFunctionCall(scope, val, funcType, args, hasImplicitSelf());
 }
 
 }  // namespace lona

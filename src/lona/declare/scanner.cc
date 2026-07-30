@@ -14,8 +14,8 @@
 
 namespace lona {
 
-using declarationsupport_impl::declareFunction;
 using declarationsupport_impl::declareExtensionFunction;
+using declarationsupport_impl::declareFunction;
 using declarationsupport_impl::declareStructType;
 using declarationsupport_impl::describeStructFieldSyntax;
 using declarationsupport_impl::insertStructMember;
@@ -32,7 +32,8 @@ using declarationsupport_impl::validateStructFieldType;
 
 namespace {
 
-bool containsGenericTypeParamReference(
+bool
+containsGenericTypeParamReference(
     TypeNode *node, const std::unordered_set<std::string> &params) {
     if (!node) {
         return false;
@@ -92,10 +93,11 @@ bool containsGenericTypeParamReference(
     return false;
 }
 
-void validateExternCGenericPointerLeaf(
-    AstFuncDecl *node, TypeNode *typeNode,
-    const std::unordered_set<std::string> &params,
-    const std::string &subject, bool allowGenericLeaf = false) {
+void
+validateExternCGenericPointerLeaf(AstFuncDecl *node, TypeNode *typeNode,
+                                  const std::unordered_set<std::string> &params,
+                                  const std::string &subject,
+                                  bool allowGenericLeaf = false) {
     if (!typeNode) {
         return;
     }
@@ -172,9 +174,9 @@ void validateExternCGenericPointerLeaf(
     }
 }
 
-void validateExternCGenericFunctionDecl(TypeTable *typeMgr,
-                                        CompilationUnit *unit,
-                                        AstFuncDecl *node) {
+void
+validateExternCGenericFunctionDecl(TypeTable *typeMgr, CompilationUnit *unit,
+                                   AstFuncDecl *node) {
     if (!node || !node->isExternC() || !node->hasTypeParams()) {
         return;
     }
@@ -240,10 +242,10 @@ void validateExternCGenericFunctionDecl(TypeTable *typeMgr,
                           toStdString(varDecl->field) + "` in `" + funcName +
                           "`: " + describeTypeNode(varDecl->typeNode, "void"));
             }
-            rejectOpaqueStructByValue(
-                type, varDecl->typeNode, varDecl->loc,
-                "parameter `" + toStdString(varDecl->field) +
-                    "` in function `" + funcName + "`");
+            rejectOpaqueStructByValue(type, varDecl->typeNode, varDecl->loc,
+                                      "parameter `" +
+                                          toStdString(varDecl->field) +
+                                          "` in function `" + funcName + "`");
             validateExternCType(node, nullptr, "parameter",
                                 toStdString(varDecl->field), type,
                                 varDecl->typeNode, varDecl->loc);
@@ -259,9 +261,8 @@ void validateExternCGenericFunctionDecl(TypeTable *typeMgr,
     }
     auto *retType = resolveTypeNode(typeMgr, unit, node->retType);
     if (!retType) {
-        error(node->loc,
-              "unknown return type for function `" + funcName +
-                  "`: " + describeTypeNode(node->retType, "void"));
+        error(node->loc, "unknown return type for function `" + funcName +
+                             "`: " + describeTypeNode(node->retType, "void"));
     }
     rejectOpaqueStructByValue(retType, node->retType, node->loc,
                               "return type of function `" + funcName + "`");
@@ -352,6 +353,7 @@ class TypeCollector : public AstVisitorAny {
 
     std::list<AstStructDecl *> structDecls;
     std::list<AstFuncDecl *> funcDecls;
+    std::list<AstExtendDecl *> extendDecls;
     std::unordered_map<std::string, std::pair<TopLevelDeclKind, location>>
         topLevelDecls;
 
@@ -376,13 +378,11 @@ class TypeCollector : public AstVisitorAny {
                                        TopLevelDeclKind::Trait, decl->loc);
             } else if (it->is<AstFuncDecl>()) {
                 auto *decl = it->as<AstFuncDecl>();
-                if (!decl->hasExtensionReceiver()) {
-                    recordTopLevelDeclName(topLevelDecls,
-                                           toStdString(decl->name),
-                                           TopLevelDeclKind::Function,
-                                           decl->loc);
-                }
+                recordTopLevelDeclName(topLevelDecls, toStdString(decl->name),
+                                       TopLevelDeclKind::Function, decl->loc);
                 funcDecls.push_back(it->as<AstFuncDecl>());
+            } else if (it->is<AstExtendDecl>()) {
+                extendDecls.push_back(it->as<AstExtendDecl>());
             }
         }
         return nullptr;
@@ -413,12 +413,24 @@ class TypeCollector : public AstVisitorAny {
             validateExternCGenericFunctionDecl(typeMgr, unit, node);
             return nullptr;
         }
-        if (node->hasExtensionReceiver()) {
-            declareExtensionFunction(*scope, typeMgr, node, unit,
-                                     exportNamespace);
+        declareFunction(*scope, typeMgr, node, nullptr, unit, exportNamespace);
+        return nullptr;
+    }
+
+    Object *visit(AstExtendDecl *node) override {
+        auto *body =
+            node && node->body ? node->body->as<AstStatList>() : nullptr;
+        if (!body) {
             return nullptr;
         }
-        declareFunction(*scope, typeMgr, node, nullptr, unit, exportNamespace);
+        for (auto *stmt : body->getBody()) {
+            auto *method = stmt ? stmt->as<AstFuncDecl>() : nullptr;
+            if (!method) {
+                continue;
+            }
+            declareExtensionFunction(*scope, typeMgr, node, method, unit,
+                                     exportNamespace);
+        }
         return nullptr;
     }
 
@@ -446,6 +458,10 @@ public:
         }
 
         for (auto *it : funcDecls) {
+            this->visit(it);
+        }
+
+        for (auto *it : extendDecls) {
             this->visit(it);
         }
     }

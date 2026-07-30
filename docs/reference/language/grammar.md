@@ -50,6 +50,7 @@
 - `else`
 - `for`
 - `struct`
+- `extend`
 - `trait`
 - `impl`
 - `import`
@@ -132,6 +133,7 @@ program-item      ::= NL
                     | tagged-global-decl
                     | trait-decl
                     | impl-decl
+                    | extend-decl
 
 import-stat       ::= "import" ImportPath NL
 ```
@@ -143,6 +145,7 @@ import-stat       ::= "import" ImportPath NL
 - `import` 不属于 `stat`，因此不能出现在块、函数体或结构体体内；写在这些位置会在 parser 阶段报错。
 - `global` 也只允许出现在文件顶层，不属于普通 `stat`。
 - `trait` 与 `impl` 也只允许出现在文件顶层。
+- `extend Type { ... }` 也只允许出现在文件顶层。
 
 ### 3.2 语句
 
@@ -241,14 +244,22 @@ global-decl       ::= "global" IDENT type-name NL
                     | "global" IDENT "=" expr NL
                     | "global" IDENT "=" brace-init NL
 
-func-decl         ::= [ "set" ] "def" IDENT opt-type-params "(" ")" NL
-                    | [ "set" ] "def" IDENT opt-type-params "(" ")" type-name NL
-                    | [ "set" ] "def" IDENT opt-type-params "(" param-decl-seq ")" NL
-                    | [ "set" ] "def" IDENT opt-type-params "(" param-decl-seq ")" type-name NL
-                    | [ "set" ] "def" IDENT opt-type-params "(" ")" block
-                    | [ "set" ] "def" IDENT opt-type-params "(" ")" type-name block
-                    | [ "set" ] "def" IDENT opt-type-params "(" param-decl-seq ")" block
-                    | [ "set" ] "def" IDENT opt-type-params "(" param-decl-seq ")" type-name block
+receiver-prefix   ::= /* empty */ | "set" | "var"
+
+func-decl         ::= receiver-prefix "def" IDENT opt-type-params "(" ")" NL
+                    | receiver-prefix "def" IDENT opt-type-params "(" ")" type-name NL
+                    | receiver-prefix "def" IDENT opt-type-params "(" param-decl-seq ")" NL
+                    | receiver-prefix "def" IDENT opt-type-params "(" param-decl-seq ")" type-name NL
+                    | receiver-prefix "def" IDENT opt-type-params "(" ")" block
+                    | receiver-prefix "def" IDENT opt-type-params "(" ")" type-name block
+                    | receiver-prefix "def" IDENT opt-type-params "(" param-decl-seq ")" block
+                    | receiver-prefix "def" IDENT opt-type-params "(" param-decl-seq ")" type-name block
+
+extend-decl       ::= "extend" type-name "{" "}"
+                    | "extend" type-name "{"
+                      ( tagged-func-decl | NL )
+                      { NL | tagged-func-decl }
+                      "}"
 
 trait-decl        ::= "trait" IDENT NL
                     | "trait" IDENT "{ }"
@@ -260,10 +271,10 @@ trait-decl        ::= "trait" IDENT NL
 trait-stat        ::= trait-func-decl
                     | /* parser 还会接纳更多成员与语句形状，语义阶段再给 targeted diagnostic */
 
-trait-func-decl   ::= [ "set" ] "def" IDENT opt-type-params "(" ")" NL
-                    | [ "set" ] "def" IDENT opt-type-params "(" ")" type-name NL
-                    | [ "set" ] "def" IDENT opt-type-params "(" param-decl-seq ")" NL
-                    | [ "set" ] "def" IDENT opt-type-params "(" param-decl-seq ")" type-name NL
+trait-func-decl   ::= receiver-prefix "def" IDENT opt-type-params "(" ")" NL
+                    | receiver-prefix "def" IDENT opt-type-params "(" ")" type-name NL
+                    | receiver-prefix "def" IDENT opt-type-params "(" param-decl-seq ")" NL
+                    | receiver-prefix "def" IDENT opt-type-params "(" param-decl-seq ")" type-name NL
 
 impl-decl         ::= "impl" opt-type-params dot-like-name "for" NL* type-name block
 
@@ -311,6 +322,8 @@ param-decl-seq    ::= param-decl
 - `global` 的运行时语义与当前初始化限制见 [global.md](./global.md)。
 - trait / impl / `Trait dyn` 的完整语义见 [trait.md](./trait.md)。
 - generic v0 的完整语义见 [generic.md](./generic.md)。
+- receiver scope 中的 `def`、`set def`、`var def` 分别提供 `Self const*`、`Self*`、`Self`；顶层函数只能写普通 `def`。
+- `struct` 和 `extend` 中没有静态方法。不依赖 receiver 的功能使用顶层模块函数。
 
 ### 3.4 变量定义
 

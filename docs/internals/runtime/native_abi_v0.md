@@ -342,31 +342,22 @@ ABI 形态：
 i32 @inc(ptr)
 ```
 
-### 5.4 成员函数隐式参数顺序
+### 5.4 方法 receiver 与参数顺序
 
-成员函数在语义上带有一个隐式：
+方法的语义函数类型把 receiver 作为第一个 source argument：
 
-- `self`
+- `def`：`Self const*`
+- `set def`：`Self*`
+- `var def`：`Self`
 
-因此，method lowering 到 ABI 时，需要先把隐藏参数顺序冻结下来。
+随后才是源码显式形参。统一 native ABI 的 lowered 参数顺序为：
 
-v0 规定成员函数的参数顺序为：
+1. `sret`，如果返回值需要间接返回
+2. 所有 source arguments，按语义函数类型顺序
 
-1. `self`
-2. `sret`，如果返回值是未命中“小聚合直接返回”的聚合
-3. 显式形参，按源码声明顺序
-
-也就是：
-
-- `self > sret > normal`
-
-其中：
-
-- `self` 总是按指针接收
-- ABI 上表现为一个 `ptr`
-- `self` 不做值拷贝
-- 普通 `def` 的 hidden `self` 是 `Self const*`
-- `set def` 的 hidden `self` 是 `Self*`
+因此方法是 `sret > receiver > normal`，普通函数则是 `sret > normal`。
+`var def` 不为 receiver 发明单独 ABI：小聚合可按单寄存器打包，大聚合按普通
+indirect value 参数传递，callee 入口仍建立独立可写副本。
 
 例如：
 
@@ -384,7 +375,7 @@ struct Counter {
 ABI 形态：
 
 ```text
-i32 @Counter.bump(ptr, i32)
+i32 @Counter.bump.__receiver_set(ptr, i32)
 ```
 
 再例如成员函数返回聚合：
@@ -403,15 +394,31 @@ struct Pair {
 ABI 形态：
 
 ```text
-i64 @Pair.swap(ptr)
+i64 @Pair.swap.__receiver_get(ptr)
 ```
 
 这里 `Pair` 因为满足单寄存器聚合打包条件，所以直接按 `i64` 返回。
 
-非成员函数不带 `self`，因此它们的隐藏参数顺序仍然只是：
+值 receiver 示例：
 
-1. `sret`，如果存在且返回值未命中“小聚合直接返回”
-2. 显式形参
+```lona
+struct Pair {
+    left i32
+    right i32
+
+    var def swapped() Self {
+        ret Pair(self.right, self.left)
+    }
+}
+```
+
+`Pair` 的值 receiver 命中单寄存器聚合打包时，ABI 近似为：
+
+```text
+i64 @Pair.swapped.__receiver_var(i64)
+```
+
+如果方法返回需要 `sret` 的大聚合，则 `sret` 指针始终排在 receiver 之前；直接调用、函数指针调用和 trait adapter thunk 都遵守同一顺序。
 
 ### 5.5 聚合按值参数
 

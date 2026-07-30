@@ -1,49 +1,41 @@
 from __future__ import annotations
 
-import re
-
 from tests.acceptance.language._syntax_helpers import _emit_ir, _expect_ir_failure
 from tests.harness import assert_contains, assert_not_contains, assert_regex
 from tests.harness.compiler import CompilerHarness
 
 
-def test_extension_methods_support_value_borrowed_and_const_matching(
+def test_extension_methods_support_all_receiver_modes_and_const_matching(
     compiler: CompilerHarness,
 ) -> None:
     ir = _emit_ir(
         compiler,
-        "extension_value_and_borrowed_ok.lo",
+        "extension_receiver_modes_ok.lo",
         """
-        def i32.kind() i32 {
-            ret 1
-        }
+        extend i32 {
+            var def doubled() i32 {
+                self = self * 2
+                ret self
+            }
 
-        def (i32 const*).kind() i32 {
-            ret 2
-        }
+            def peek() i32 {
+                ret *self
+            }
 
-        def (i32 const*).pick() i32 {
-            ret 60
-        }
-
-        def (i32*).pick() i32 {
-            ret 50
+            set def add(step i32) {
+                *self = *self + step
+            }
         }
 
         def main() i32 {
             var value i32 = 4
             const frozen i32 = 7
-            if 1.kind() != 1 {
+            value.add(3)
+            if value.peek() != 7 {
                 ret 1
             }
-            if value.kind() != 1 {
+            if frozen.doubled() != 14 {
                 ret 2
-            }
-            if value.pick() != 50 {
-                ret 3
-            }
-            if frozen.pick() != 60 {
-                ret 4
             }
             ret 0
         }
@@ -51,25 +43,22 @@ def test_extension_methods_support_value_borrowed_and_const_matching(
     )
     assert_regex(
         ir,
-        r"call i32 @.*\.i32\.kind\(i32 ",
+        r"call i32 @.*\.__extend__\.var\.doubled\(i32 ",
         label="extension value receiver ir",
     )
     assert_regex(
         ir,
-        r"call i32 @.*\.i32_2a\.pick\(ptr ",
-        label="extension mutable borrowed ir",
+        r"call i32 @.*\.__extend__\.get\.peek\(ptr ",
+        label="extension readonly borrowed ir",
     )
     assert_regex(
         ir,
-        r"call i32 @.*\.i32_20const_2a\.pick\(ptr ",
-        label="extension readonly borrowed ir",
-    )
-    assert re.search(r"call i32 @.*\.i32_20const_2a\.kind\(ptr ", ir) is None, (
-        "expected value receiver calls to win over readonly borrowed receivers\n" + ir
+        r"call void @.*\.__extend__\.set\.add\(ptr ",
+        label="extension writable borrowed ir",
     )
 
 
-def test_extension_methods_allow_struct_temporary_borrowed_receivers(
+def test_extension_methods_materialize_temporary_borrowed_receivers(
     compiler: CompilerHarness,
 ) -> None:
     ir = _emit_ir(
@@ -81,8 +70,10 @@ def test_extension_methods_allow_struct_temporary_borrowed_receivers(
             right i32
         }
 
-        def (Pair const*).sum() i32 {
-            ret self.left + self.right
+        extend Pair {
+            def sum() i32 {
+                ret self.left + self.right
+            }
         }
 
         def main() i32 {
@@ -92,48 +83,60 @@ def test_extension_methods_allow_struct_temporary_borrowed_receivers(
     )
     assert_regex(
         ir,
-        r"call i32 @.*\..*Pair_20const_2a\.sum\(ptr ",
+        r"call i32 @.*\.__extend__\.get\.sum\(ptr ",
         label="extension temporary borrowed ir",
     )
 
 
-def test_pointer_typed_extension_receivers_do_not_fall_back_to_value_receivers(
+def test_pointer_dot_call_dereferences_before_value_extension_binding(
     compiler: CompilerHarness,
 ) -> None:
-    _expect_ir_failure(
+    ir = _emit_ir(
         compiler,
-        "extension_pointer_no_value_fallback.lo",
+        "extension_pointer_value_receiver_ok.lo",
         """
-        def i32.kind() i32 {
-            ret 1
+        extend i32 {
+            var def doubled() i32 {
+                ret self * 2
+            }
         }
 
         def main() i32 {
             var value i32 = 7
             var ptr i32* = &value
-            ret ptr.kind()
+            ret ptr.doubled()
         }
         """,
-        ["unknown member `i32.kind`"],
+    )
+    assert_regex(
+        ir,
+        r"call i32 @.*\.__extend__\.var\.doubled\(i32 ",
+        label="pointer value extension ir",
     )
 
 
-def test_scalar_literals_do_not_materialize_borrowed_extension_receivers(
+def test_scalar_literals_materialize_readonly_borrowed_extension_receivers(
     compiler: CompilerHarness,
 ) -> None:
-    _expect_ir_failure(
+    ir = _emit_ir(
         compiler,
-        "extension_literal_no_borrowed_materialization.lo",
+        "extension_literal_borrowed_materialization_ok.lo",
         """
-        def (i32 const*).peek() i32 {
-            ret *self
+        extend i32 {
+            def peek() i32 {
+                ret *self
+            }
         }
 
         def main() i32 {
             ret 1.peek()
         }
         """,
-        ["unknown member `i32.peek`"],
+    )
+    assert_regex(
+        ir,
+        r"call i32 @.*\.__extend__\.get\.peek\(ptr ",
+        label="literal borrowed extension ir",
     )
 
 
@@ -143,8 +146,10 @@ def test_extension_methods_follow_direct_import_visibility_only(
     compiler.write_source(
         "extension_import_visibility/dep_a.lo",
         """
-        def i32.extra() i32 {
-            ret 7
+        extend i32 {
+            var def extra() i32 {
+                ret self + 6
+            }
         }
         """,
     )
@@ -189,27 +194,31 @@ def test_extension_methods_follow_direct_import_visibility_only(
     direct_ir = compiler.emit_ir(direct_main).expect_ok().stdout
     assert_regex(
         direct_ir,
-        r"call i32 @.*dep_a\.i32\.extra\(i32 ",
+        r"call i32 @dep_a\..*\.__extend__\.var\.extra\(i32 ",
         label="extension direct import ir",
     )
 
 
-def test_extension_method_conflicts_are_reported_for_imports_and_inherent_methods(
+def test_extension_import_conflicts_are_ambiguous_and_inherent_methods_win(
     compiler: CompilerHarness,
 ) -> None:
     compiler.write_source(
         "extension_conflicts/dep_a.lo",
         """
-        def i32.extra() i32 {
-            ret 1
+        extend i32 {
+            var def extra() i32 {
+                ret self + 1
+            }
         }
         """,
     )
     compiler.write_source(
         "extension_conflicts/dep_b.lo",
         """
-        def i32.extra() i32 {
-            ret 2
+        extend i32 {
+            def extra() i32 {
+                ret *self + 2
+            }
         }
         """,
     )
@@ -219,19 +228,26 @@ def test_extension_method_conflicts_are_reported_for_imports_and_inherent_method
         import dep_a
         import dep_b
 
-        ret 0
+        ret 1.extra()
         """,
     )
     import_failed = compiler.emit_ir(import_conflict).expect_failed()
-    assert_contains(
-        import_failed.stderr,
+    for needle in [
         "visible extension method conflict for `i32.extra`",
-        label="extension import conflict diagnostic",
-    )
+        "dep_a",
+        "dep_b",
+        "(`var`)",
+        "(`get`)",
+    ]:
+        assert_contains(
+            import_failed.stderr,
+            needle,
+            label="extension import conflict diagnostic",
+        )
 
-    _expect_ir_failure(
+    inherent_ir = _emit_ir(
         compiler,
-        "extension_inherent_conflict.lo",
+        "extension_inherent_precedence.lo",
         """
         struct Point {
             x i32
@@ -241,11 +257,26 @@ def test_extension_method_conflicts_are_reported_for_imports_and_inherent_method
             }
         }
 
-        def (Point const*).len() i32 {
-            ret self.x + 1
+        extend Point {
+            def len() i32 {
+                ret self.x + 1
+            }
+        }
+
+        def main() i32 {
+            ret Point(x = 4).len()
         }
         """,
-        ["extension method `extension_inherent_conflict.Point.len` conflicts with an inherent method"],
+    )
+    assert_regex(
+        inherent_ir,
+        r"call i32 @.*Point\.len\.__receiver_get\(ptr ",
+        label="inherent precedence ir",
+    )
+    assert_not_contains(
+        inherent_ir,
+        "call i32 @extension_inherent_precedence.extension_5finherent_5fprecedence_2ePoint.__extend__.get.len",
+        label="inherent precedence ir",
     )
 
 
@@ -256,8 +287,10 @@ def test_extension_method_bare_selectors_are_rejected(
         compiler,
         "extension_selector_bad.lo",
         """
-        def i32.kind() i32 {
-            ret 1
+        extend i32 {
+            var def kind() i32 {
+                ret self
+            }
         }
 
         def main() i32 {
@@ -294,8 +327,10 @@ def test_extension_methods_do_not_participate_in_generic_bound_lookup(
             }
         }
 
-        def (Point const*).extra() i32 {
-            ret self.value + 1
+        extend Point {
+            def extra() i32 {
+                ret self.value + 1
+            }
         }
 
         def use[T Hash](value T) i32 {

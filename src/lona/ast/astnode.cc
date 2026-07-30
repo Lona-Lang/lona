@@ -227,56 +227,38 @@ deleteOwnedSequence(std::list<T *> &items) {
 
 }  // namespace
 
-AstTag::~AstTag() {
-    delete args;
-}
+AstTag::~AstTag() { delete args; }
 
-AstGenericParam::~AstGenericParam() {
-    delete boundTrait;
-}
+AstGenericParam::~AstGenericParam() { delete boundTrait; }
 
-BaseTypeNode::~BaseTypeNode() {
-    delete syntax;
-}
+BaseTypeNode::~BaseTypeNode() { delete syntax; }
 
 AppliedTypeNode::~AppliedTypeNode() {
     delete base;
     deleteOwnedSequence(args);
 }
 
-DynTypeNode::~DynTypeNode() {
-    delete base;
-}
+DynTypeNode::~DynTypeNode() { delete base; }
 
-ConstTypeNode::~ConstTypeNode() {
-    delete base;
-}
+ConstTypeNode::~ConstTypeNode() { delete base; }
 
-PointerTypeNode::~PointerTypeNode() {
-    delete base;
-}
+PointerTypeNode::~PointerTypeNode() { delete base; }
 
-IndexablePointerTypeNode::~IndexablePointerTypeNode() {
-    delete base;
-}
+IndexablePointerTypeNode::~IndexablePointerTypeNode() { delete base; }
 
 ArrayTypeNode::~ArrayTypeNode() {
     delete base;
     deleteOwnedSequence(dim);
 }
 
-TupleTypeNode::~TupleTypeNode() {
-    deleteOwnedSequence(items);
-}
+TupleTypeNode::~TupleTypeNode() { deleteOwnedSequence(items); }
 
 FuncPtrTypeNode::~FuncPtrTypeNode() {
     deleteOwnedSequence(args);
     delete ret;
 }
 
-FuncParamTypeNode::~FuncParamTypeNode() {
-    delete type;
-}
+FuncParamTypeNode::~FuncParamTypeNode() { delete type; }
 
 FuncPtrTypeNode *
 findFuncPtrTypeNode(TypeNode *node) {
@@ -355,6 +337,7 @@ DEF_ACCEPT(AstBraceInit)
 DEF_ACCEPT(AstNamedCallArg)
 DEF_ACCEPT(AstTypeApply)
 DEF_ACCEPT(AstStructDecl)
+DEF_ACCEPT(AstExtendDecl)
 DEF_ACCEPT(AstTraitDecl)
 DEF_ACCEPT(AstTraitImplDecl)
 DEF_ACCEPT(AstGlobalDecl)
@@ -378,13 +361,9 @@ AstProgram::AstProgram(AstNode *body)
     assert(body->is<AstStatList>());
 }
 
-AstTagNode::~AstTagNode() {
-    deleteOwnedSequence(tags);
-}
+AstTagNode::~AstTagNode() { deleteOwnedSequence(tags); }
 
-AstProgram::~AstProgram() {
-    delete body;
-}
+AstProgram::~AstProgram() { delete body; }
 
 AstConst::AstConst(AstToken &token) : AstNode(AstKind::Const, token.loc) {
     switch (token.type) {
@@ -660,9 +639,7 @@ AstField::AstField(AstToken &token)
     assert(token.type == TokenType::Field);
 }
 
-AstFuncRef::~AstFuncRef() {
-    delete value;
-}
+AstFuncRef::~AstFuncRef() { delete value; }
 
 AstAssign::AstAssign(AstNode *left, AstNode *right)
     : AstNode(AstKind::Assign,
@@ -699,29 +676,17 @@ AstUnaryOper::AstUnaryOper(token_type op, AstNode *expr)
       op(op),
       expr(expr) {}
 
-AstUnaryOper::~AstUnaryOper() {
-    delete expr;
-}
+AstUnaryOper::~AstUnaryOper() { delete expr; }
 
-AstRefExpr::~AstRefExpr() {
-    delete expr;
-}
+AstRefExpr::~AstRefExpr() { delete expr; }
 
-AstTupleLiteral::~AstTupleLiteral() {
-    deleteOwnedSequence(items);
-}
+AstTupleLiteral::~AstTupleLiteral() { deleteOwnedSequence(items); }
 
-AstBraceInitItem::~AstBraceInitItem() {
-    delete value;
-}
+AstBraceInitItem::~AstBraceInitItem() { delete value; }
 
-AstBraceInit::~AstBraceInit() {
-    deleteOwnedSequence(items);
-}
+AstBraceInit::~AstBraceInit() { deleteOwnedSequence(items); }
 
-AstNamedCallArg::~AstNamedCallArg() {
-    delete value;
-}
+AstNamedCallArg::~AstNamedCallArg() { delete value; }
 
 AstTypeApply::~AstTypeApply() {
     delete value;
@@ -733,9 +698,12 @@ AstStructDecl::~AstStructDecl() {
     delete body;
 }
 
-AstTraitDecl::~AstTraitDecl() {
+AstExtendDecl::~AstExtendDecl() {
+    delete targetType;
     delete body;
 }
+
+AstTraitDecl::~AstTraitDecl() { delete body; }
 
 AstTraitImplDecl::~AstTraitImplDecl() {
     deleteOwnedSequence(typeParams);
@@ -807,8 +775,7 @@ AstStatList::~AstStatList() {
 AstFuncDecl::AstFuncDecl(AstToken &name, AstNode *body,
                          std::vector<AstGenericParam *> *typeParams,
                          std::vector<AstNode *> *args, TypeNode *retType,
-                         AbiKind abiKind, AccessKind receiverAccess,
-                         bool extensionMethod)
+                         AbiKind abiKind, ReceiverMode receiverMode)
     : AstNode(AstKind::FuncDecl, name.loc),
       name(name.text),
       typeParams(typeParams),
@@ -816,8 +783,7 @@ AstFuncDecl::AstFuncDecl(AstToken &name, AstNode *body,
       body(body),
       retType(retType),
       abiKind(abiKind),
-      receiverAccess(receiverAccess),
-      extensionMethod(extensionMethod) {}
+      receiverMode(receiverMode) {}
 
 AstFuncDecl::~AstFuncDecl() {
     deleteOwnedSequence(typeParams);
@@ -829,9 +795,7 @@ AstFuncDecl::~AstFuncDecl() {
 AstRet::AstRet(const location &loc, AstNode *expr)
     : AstNode(AstKind::Ret, loc), expr(expr) {}
 
-AstRet::~AstRet() {
-    delete expr;
-}
+AstRet::~AstRet() { delete expr; }
 
 AstIf::AstIf(AstNode *condition, AstNode *then, AstNode *els)
     : AstNode(AstKind::If, condition ? condition->loc : location()),
@@ -877,9 +841,7 @@ AstFieldCall::~AstFieldCall() {
     deleteOwnedSequence(args);
 }
 
-AstDotLike::~AstDotLike() {
-    delete parent;
-}
+AstDotLike::~AstDotLike() { delete parent; }
 
 std::string
 describeDotLikeSyntax(const AstNode *node, std::string_view nullDescription) {

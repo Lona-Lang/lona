@@ -14,6 +14,10 @@
 - [language/test_controlflow.py](language/test_controlflow.py): `if` / `for` / `for ... else` / `break` / `continue` 的 JSON、诊断和运行语义。
 - [language/test_embedding.py](language/test_embedding.py): struct 嵌入、成员提升、显式路径、构造边界和歧义诊断。
 - [language/test_functions.py](language/test_functions.py): 函数指针、C FFI、裸函数限制、方法选择器和调用检查。
+- [language/test_receiver_modes.py](language/test_receiver_modes.py): `def` / `set def` / `var def` 的借用与复制语义、限定调用、方法引用、trait value thunk 和 `extend` 边界。
+- [language/test_extension_methods.py](language/test_extension_methods.py): extension lookup 顺序、直接 import 可见性、冲突、const 匹配与封装边界。
+- [language/test_traits.py](language/test_traits.py): trait/impl、限定调用、`Trait dyn`、receiver mode 匹配与 witness dispatch。
+- [language/test_generics.py](language/test_generics.py): generic function/struct/method 实例化、single bound 与跨模块实例恢复。
 - [language/test_operators.py](language/test_operators.py): 算术、位运算、比较、逻辑短路和运行语义。
 - [language/test_references.py](language/test_references.py): `ref` 局部绑定、参数传递、addressable 约束与 const 传播。
 

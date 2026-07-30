@@ -448,12 +448,12 @@ def test_generic_v0_concrete_helper_aliases_still_allow_member_access(
     )
     assert_contains(
         ir,
-        "@generic_concrete_helper_alias_round8.Point.hash",
+        "@generic_concrete_helper_alias_round8.Point.hash.__receiver_get",
         label="generic concrete helper alias ir",
     )
     assert_contains(
         ir,
-        "call i32 @generic_concrete_helper_alias_round8.Point.hash(",
+        "call i32 @generic_concrete_helper_alias_round8.Point.hash.__receiver_get(",
         label="generic concrete helper alias ir",
     )
 
@@ -488,12 +488,12 @@ def test_generic_v0_concrete_method_aliases_still_allow_member_access(
     )
     assert_contains(
         ir,
-        "@generic_concrete_method_alias_round9.Point.hash",
+        "@generic_concrete_method_alias_round9.Point.hash.__receiver_get",
         label="generic concrete method alias ir",
     )
     assert_contains(
         ir,
-        "call i32 @generic_concrete_method_alias_round9.Point.hash(",
+        "call i32 @generic_concrete_method_alias_round9.Point.hash.__receiver_get(",
         label="generic concrete method alias ir",
     )
 
@@ -997,7 +997,7 @@ def test_generic_v0_bounded_generic_functions_require_visible_impls_and_trait_qu
     )
     assert_contains(
         ir,
-        "call i32 @generic_bound_function_round12.Point.hash(",
+        "call i32 @generic_bound_function_round12.Point.hash.__receiver_get(",
         label="generic bound function ir",
     )
 
@@ -1073,7 +1073,7 @@ def test_generic_v0_bounded_params_allow_plain_dot_lookup_for_bound_methods(
     )
     assert_contains(
         ir,
-        "call i32 @generic_bound_member_lookup_ok_round14.Point.hash(",
+        "call i32 @generic_bound_member_lookup_ok_round14.Point.hash.__receiver_get(",
         label="bounded dot lookup ir",
     )
 
@@ -1125,7 +1125,7 @@ def test_generic_v0_bounded_array_projection_results_allow_plain_dot_lookup(
     )
     assert_contains(
         ir,
-        "call i32 @generic_bound_array_projection_ok_round15.Point.hash(",
+        "call i32 @generic_bound_array_projection_ok_round15.Point.hash.__receiver_get(",
         label="bounded array projection ir",
     )
 
@@ -1248,12 +1248,12 @@ def test_generic_v0_trait_impl_bodies_enable_trait_qualified_calls_for_applied_g
     )
     assert_regex(
         ir,
-        r"define i32 @generic_5ftrait_5fimpl_5fstatic_5fcall_5fround12_2eBox_5b.*Point.*_5d\.hash\(ptr ",
+        r"define i32 @generic_5ftrait_5fimpl_5fstatic_5fcall_5fround12_2eBox_5b.*Point.*_5d\.hash\.__receiver_get\(ptr ",
         label="generic trait impl static call ir",
     )
     assert_regex(
         ir,
-        r"call i32 @generic_5ftrait_5fimpl_5fstatic_5fcall_5fround12_2eBox_5b.*Point.*_5d\.hash\(ptr ",
+        r"call i32 @generic_5ftrait_5fimpl_5fstatic_5fcall_5fround12_2eBox_5b.*Point.*_5d\.hash\.__receiver_get\(ptr ",
         label="generic trait impl static call ir",
     )
 
@@ -1342,22 +1342,22 @@ def test_generic_v0_struct_decl_bounds_and_generic_methods_lower_for_same_module
     )
     assert_regex(
         ir,
-        r"@generic_5fstruct_5fdecl_5fbound_5fand_5fmethod_5fround13_2eBox_5b.*Point.*_5d\.echo__inst__i32",
+        r"@generic_5fstruct_5fdecl_5fbound_5fand_5fmethod_5fround13_2eBox_5b.*Point.*_5d\.echo\.__receiver_get__inst__i32",
         label="generic method explicit instantiation ir",
     )
     assert_regex(
         ir,
-        r"@generic_5fstruct_5fdecl_5fbound_5fand_5fmethod_5fround13_2eBox_5b.*Point.*_5d\.echo__inst__bool",
+        r"@generic_5fstruct_5fdecl_5fbound_5fand_5fmethod_5fround13_2eBox_5b.*Point.*_5d\.echo\.__receiver_get__inst__bool",
         label="generic method inferred instantiation ir",
     )
     assert_regex(
         ir,
-        r"@generic_5fstruct_5fdecl_5fbound_5fand_5fmethod_5fround13_2eBox_5b.*Point.*_5d\.score_with__inst__.*Other",
+        r"@generic_5fstruct_5fdecl_5fbound_5fand_5fmethod_5fround13_2eBox_5b.*Point.*_5d\.score_with\.__receiver_get__inst__.*Other",
         label="generic method bounded instantiation ir",
     )
     assert_regex(
         ir,
-        r"call i32 @generic_5fstruct_5fdecl_5fbound_5fand_5fmethod_5fround13_2eBox_5b.*Point.*_5d\.hash_value\(ptr ",
+        r"call i32 @generic_5fstruct_5fdecl_5fbound_5fand_5fmethod_5fround13_2eBox_5b.*Point.*_5d\.hash_value\.__receiver_get\(ptr ",
         label="struct decl bound method ir",
     )
 
@@ -1417,17 +1417,17 @@ def test_generic_v0_type_qualified_method_calls_support_applied_owners_and_gener
     assert_contains(ir, "define i32 @main()", label="type-qualified generic method ir")
     assert_regex(
         ir,
-        r"call i32 @.*Box_5b.*Point.*_5d\.hash_value\(ptr ",
+        r"call i32 @.*Box_5b.*Point.*_5d\.hash_value\.__receiver_get\(ptr ",
         label="type-qualified generic method ir",
     )
     assert_regex(
         ir,
-        r"@.*Box_5b.*Point.*_5d\.echo__inst__i32",
+        r"@.*Box_5b.*Point.*_5d\.echo\.__receiver_get__inst__i32",
         label="type-qualified generic method ir",
     )
     assert_regex(
         ir,
-        r"@.*Box_5b.*Point.*_5d\.echo__inst__bool",
+        r"@.*Box_5b.*Point.*_5d\.echo\.__receiver_get__inst__bool",
         label="type-qualified generic method ir",
     )
 

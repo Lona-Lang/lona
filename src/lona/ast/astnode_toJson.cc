@@ -348,6 +348,16 @@ AstStructDecl::toJson(Json &root) {
 }
 
 void
+AstExtendDecl::toJson(Json &root) {
+    root["type"] = "ExtendDecl";
+    root["targetType"] = describeTypeNode(targetType);
+    root["body"] = Json::object();
+    if (body) {
+        body->toJson(root["body"]);
+    }
+}
+
+void
 AstTraitDecl::toJson(Json &root) {
     root["type"] = "TraitDecl";
     root["name"] = this->name.tochara();
@@ -444,11 +454,7 @@ AstFuncDecl::toJson(Json &root) {
     root["type"] = "FuncDecl";
     root["name"] = this->name.tochara();
     root["abiKind"] = abiKindKeyword(this->abiKind);
-    root["receiverAccess"] = accessKindKeyword(this->receiverAccess);
-    root["extensionMethod"] = extensionMethod;
-    if (auto *receiverType = extensionReceiverType()) {
-        root["extensionReceiverType"] = describeTypeNode(receiverType);
-    }
+    root["receiverMode"] = receiverModeKeyword(this->receiverMode);
     appendTypeParamNames(root, this->typeParams);
     // if (this->retType) root["ret"] = this->retType->toString();
     if (args) {

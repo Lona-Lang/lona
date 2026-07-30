@@ -269,38 +269,44 @@ hashInlineExpr(std::uint64_t &seed, const AstNode *node) {
         switch (constant->getType()) {
             case AstConst::Type::I8:
                 hashText(seed, "i8");
-                seed = combineHash(
-                    seed, static_cast<std::uint64_t>(*constant->getBuf<std::int8_t>()));
+                seed = combineHash(seed, static_cast<std::uint64_t>(
+                                             *constant->getBuf<std::int8_t>()));
                 return;
             case AstConst::Type::U8:
                 hashText(seed, "u8");
-                seed = combineHash(
-                    seed, static_cast<std::uint64_t>(*constant->getBuf<std::uint8_t>()));
+                seed =
+                    combineHash(seed, static_cast<std::uint64_t>(
+                                          *constant->getBuf<std::uint8_t>()));
                 return;
             case AstConst::Type::I16:
                 hashText(seed, "i16");
-                seed = combineHash(
-                    seed, static_cast<std::uint64_t>(*constant->getBuf<std::int16_t>()));
+                seed =
+                    combineHash(seed, static_cast<std::uint64_t>(
+                                          *constant->getBuf<std::int16_t>()));
                 return;
             case AstConst::Type::U16:
                 hashText(seed, "u16");
-                seed = combineHash(
-                    seed, static_cast<std::uint64_t>(*constant->getBuf<std::uint16_t>()));
+                seed =
+                    combineHash(seed, static_cast<std::uint64_t>(
+                                          *constant->getBuf<std::uint16_t>()));
                 return;
             case AstConst::Type::I32:
                 hashText(seed, "i32");
-                seed = combineHash(
-                    seed, static_cast<std::uint64_t>(*constant->getBuf<std::int32_t>()));
+                seed =
+                    combineHash(seed, static_cast<std::uint64_t>(
+                                          *constant->getBuf<std::int32_t>()));
                 return;
             case AstConst::Type::U32:
                 hashText(seed, "u32");
-                seed = combineHash(
-                    seed, static_cast<std::uint64_t>(*constant->getBuf<std::uint32_t>()));
+                seed =
+                    combineHash(seed, static_cast<std::uint64_t>(
+                                          *constant->getBuf<std::uint32_t>()));
                 return;
             case AstConst::Type::I64:
                 hashText(seed, "i64");
-                seed = combineHash(
-                    seed, static_cast<std::uint64_t>(*constant->getBuf<std::int64_t>()));
+                seed =
+                    combineHash(seed, static_cast<std::uint64_t>(
+                                          *constant->getBuf<std::int64_t>()));
                 return;
             case AstConst::Type::U64:
                 hashText(seed, "u64");
@@ -313,16 +319,14 @@ hashInlineExpr(std::uint64_t &seed, const AstNode *node) {
             case AstConst::Type::F32:
                 hashText(seed, "f32");
                 seed = combineHash(
-                    seed,
-                    static_cast<std::uint64_t>(
-                        std::hash<float>{}(*constant->getBuf<float>())));
+                    seed, static_cast<std::uint64_t>(
+                              std::hash<float>{}(*constant->getBuf<float>())));
                 return;
             case AstConst::Type::F64:
                 hashText(seed, "f64");
                 seed = combineHash(
-                    seed,
-                    static_cast<std::uint64_t>(
-                        std::hash<double>{}(*constant->getBuf<double>())));
+                    seed, static_cast<std::uint64_t>(std::hash<double>{}(
+                              *constant->getBuf<double>())));
                 return;
             case AstConst::Type::STRING:
                 hashText(seed, "string");
@@ -330,13 +334,14 @@ hashInlineExpr(std::uint64_t &seed, const AstNode *node) {
                 return;
             case AstConst::Type::CHAR:
                 hashText(seed, "char");
-                seed = combineHash(
-                    seed, static_cast<std::uint64_t>(*constant->getBuf<std::uint8_t>()));
+                seed =
+                    combineHash(seed, static_cast<std::uint64_t>(
+                                          *constant->getBuf<std::uint8_t>()));
                 return;
             case AstConst::Type::BOOL:
                 hashText(seed, "bool");
-                seed = combineHash(
-                    seed, static_cast<std::uint64_t>(*constant->getBuf<bool>()));
+                seed = combineHash(seed, static_cast<std::uint64_t>(
+                                             *constant->getBuf<bool>()));
                 return;
             case AstConst::Type::NULLPTR:
                 hashText(seed, "null");
@@ -450,13 +455,21 @@ hashInterfaceNode(std::uint64_t &seed, AstNode *node) {
         }
         return;
     }
+    if (auto *extendDecl = dynamic_cast<AstExtendDecl *>(node)) {
+        hashText(seed, "extend");
+        hashTypeNode(seed, extendDecl->targetType);
+        if (extendDecl->body) {
+            hashInterfaceList(seed, extendDecl->body);
+        } else {
+            hashText(seed, "extend-body:none");
+        }
+        return;
+    }
     if (auto *funcDecl = dynamic_cast<AstFuncDecl *>(node)) {
         hashText(seed, "func");
-        hashText(seed, funcDecl->hasExtensionReceiver() ? "extension-method"
-                                                        : "ordinary-function");
         hashText(seed, toStdString(funcDecl->name));
         hashText(seed, abiKindKeyword(funcDecl->abiKind));
-        hashText(seed, accessKindKeyword(funcDecl->receiverAccess));
+        hashText(seed, receiverModeKeyword(funcDecl->receiverMode));
         hashTypeParams(seed, funcDecl->typeParams);
         if (funcDecl->args) {
             seed = combineHash(seed, funcDecl->args->size());
@@ -1172,10 +1185,10 @@ struct AppliedStructOps final : appliedstructinstantiation::MaterializationOps {
         return funcType ? typeTable->createPointerType(funcType) : nullptr;
     }
 
-    TypeClass *receiverPointeeType(StructType *structType,
-                                   AccessKind receiverAccess) const override {
-        return declarationsupport_impl::methodReceiverPointeeType(
-            typeTable, structType, receiverAccess);
+    TypeClass *receiverType(StructType *structType,
+                            ReceiverMode receiverMode) const override {
+        return declarationsupport_impl::methodReceiverType(
+            typeTable, structType, receiverMode);
     }
 
     FuncType *createMethodFunctionType(
@@ -1433,9 +1446,7 @@ CompilationUnit::CompilationUnit(const SourceBuffer &source) {
     refreshSource(source);
 }
 
-CompilationUnit::~CompilationUnit() {
-    delete syntaxTree_;
-}
+CompilationUnit::~CompilationUnit() { delete syntaxTree_; }
 
 const SourceBuffer &
 CompilationUnit::source() const {
@@ -1487,9 +1498,9 @@ CompilationUnit::refreshSource(const SourceBuffer &source) {
     const auto newPath = source.path();
     const bool keepCanonicalModuleKey =
         oldPath == newPath && !modulePath_.empty() && moduleKey_ == modulePath_;
-    const auto newKey =
-        keepCanonicalModuleKey ? toStdString(modulePath_)
-                               : compilation_unit_impl::deriveModuleKey(newPath);
+    const auto newKey = keepCanonicalModuleKey
+                            ? toStdString(modulePath_)
+                            : compilation_unit_impl::deriveModuleKey(newPath);
     const auto newName = compilation_unit_impl::deriveModuleName(newPath);
     const auto newHash = hashModuleSource(source.content());
     const bool changed = !source_ || path_ != newPath || !moduleInterface_ ||

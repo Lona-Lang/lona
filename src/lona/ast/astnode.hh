@@ -26,6 +26,7 @@ class AstRet;
 class AstGenericParam;
 class AstTraitDecl;
 class AstTraitImplDecl;
+class AstExtendDecl;
 class AstVisitor;
 class Object;
 class Scope;
@@ -83,6 +84,30 @@ accessKindKeyword(AccessKind kind) {
     return kind == AccessKind::GetSet ? "set" : "get";
 }
 
+enum class ReceiverMode {
+    BorrowedReadOnly,
+    BorrowedReadWrite,
+    Value,
+};
+
+inline const char *
+receiverModeKeyword(ReceiverMode mode) {
+    switch (mode) {
+        case ReceiverMode::BorrowedReadWrite:
+            return "set";
+        case ReceiverMode::Value:
+            return "var";
+        case ReceiverMode::BorrowedReadOnly:
+        default:
+            return "get";
+    }
+}
+
+inline bool
+isBorrowedReceiver(ReceiverMode mode) {
+    return mode != ReceiverMode::Value;
+}
+
 enum class StructDeclKind {
     Native,
     Opaque,
@@ -106,6 +131,7 @@ enum class AstKind {
     NamedCallArg,
     TypeApply,
     StructDecl,
+    ExtendDecl,
     TraitDecl,
     TraitImplDecl,
     GlobalDecl,
@@ -352,10 +378,9 @@ public:
     std::vector<AstTag *> *tags;
 
     explicit AstTagNode(std::vector<AstTag *> *tags)
-        : AstNode(AstKind::TagNode,
-                  tags && !tags->empty() && (*tags)[0]
-                      ? (*tags)[0]->name.loc
-                      : location()),
+        : AstNode(AstKind::TagNode, tags && !tags->empty() && (*tags)[0]
+                                        ? (*tags)[0]->name.loc
+                                        : location()),
           tags(tags ? tags : new std::vector<AstTag *>) {}
     ~AstTagNode() override;
     std::vector<AstTag *> *releaseTags() {
@@ -620,13 +645,31 @@ public:
     Object *accept(AstVisitor &visitor) override;
 };
 
+class AstExtendDecl : public AstNode {
+public:
+    TypeNode *const targetType;
+    AstNode *const body;
+
+    AstExtendDecl(TypeNode *targetType, AstNode *body,
+                  const location &loc = location())
+        : AstNode(AstKind::ExtendDecl, loc),
+          targetType(targetType),
+          body(body) {}
+    ~AstExtendDecl() override;
+
+    void toJson(Json &root) override;
+    Object *accept(AstVisitor &visitor) override;
+};
+
 class AstTraitDecl : public AstNode {
 public:
     string const name;
     AstNode *const body;
 
     AstTraitDecl(AstToken &field, AstNode *body)
-        : AstNode(AstKind::TraitDecl, field.loc), name(field.text), body(body) {}
+        : AstNode(AstKind::TraitDecl, field.loc),
+          name(field.text),
+          body(body) {}
     ~AstTraitDecl() override;
 
     bool hasBody() const { return body != nullptr; }
@@ -810,33 +853,20 @@ public:
     AstNode *const body;
     TypeNode *const retType;
     AbiKind abiKind;
-    AccessKind receiverAccess = AccessKind::GetOnly;
-    bool extensionMethod = false;
+    ReceiverMode receiverMode = ReceiverMode::BorrowedReadOnly;
     bool hasTypeParams() const {
         return typeParams != nullptr && !typeParams->empty();
     }
     bool hasArgs() const { return args != nullptr; }
     bool hasBody() const { return body != nullptr; }
     bool isExternC() const { return abiKind == AbiKind::C; }
-    bool hasExtensionReceiver() const { return extensionMethod; }
-    AstVarDecl *extensionReceiverParam() const {
-        if (!extensionMethod || !args || args->empty()) {
-            return nullptr;
-        }
-        return dynamic_cast<AstVarDecl *>(args->front());
-    }
-    TypeNode *extensionReceiverType() const {
-        auto *param = extensionReceiverParam();
-        return param ? param->typeNode : nullptr;
-    }
     void setAbiKind(AbiKind kind) { abiKind = kind; }
 
     AstFuncDecl(AstToken &name, AstNode *body,
                 std::vector<AstGenericParam *> *typeParams = nullptr,
                 std::vector<AstNode *> *args = nullptr,
                 TypeNode *retType = nullptr, AbiKind abiKind = AbiKind::Native,
-                AccessKind receiverAccess = AccessKind::GetOnly,
-                bool extensionMethod = false);
+                ReceiverMode receiverMode = ReceiverMode::BorrowedReadOnly);
     ~AstFuncDecl() override;
     void toJson(Json &root) override;
 
@@ -922,7 +952,9 @@ public:
 
     AstCastExpr(TypeNode *targetType, AstNode *value,
                 const location &loc = location())
-        : AstNode(AstKind::CastExpr, loc), targetType(targetType), value(value) {}
+        : AstNode(AstKind::CastExpr, loc),
+          targetType(targetType),
+          value(value) {}
     ~AstCastExpr() override;
 
     void toJson(Json &root) override;

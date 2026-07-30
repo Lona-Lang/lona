@@ -2,6 +2,9 @@
 
 > 这是一份面向 `lona` 的 trait 草案。
 > 目标不是照搬某一门语言，而是在 `lona` 当前“结构体方法 + 显式指针 + 按模块产出 artifact”的实现基础上，先收口一版真正可落地的设计。
+>
+> 本文保留早期设计推导，不作为当前语法参考。当前 receiver、impl 与 dyn 行为见
+> `docs/reference/language/trait.md` 和 `docs/internals/compiler/trait_lowering.md`。
 
 ## 1. 范围
 

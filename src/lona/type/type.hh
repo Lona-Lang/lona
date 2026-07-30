@@ -21,6 +21,7 @@
 #include <llvm-18/llvm/Support/Casting.h>
 #include <llvm/IR/IRBuilder.h>
 #include <llvm/IR/Value.h>
+#include <optional>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -164,8 +165,7 @@ class DynTraitType : public TypeClass {
 public:
     static string buildName(const ::string &traitName,
                             bool readOnlyDataPtr = false) {
-        return readOnlyDataPtr ? traitName + " const dyn"
-                               : traitName + " dyn";
+        return readOnlyDataPtr ? traitName + " const dyn" : traitName + " dyn";
     }
 
     explicit DynTraitType(string traitName, bool readOnlyDataPtr = false)
@@ -185,6 +185,7 @@ public:
     struct TraitMethodEntry {
         string traitName;
         string methodName;
+        ReceiverMode receiverMode = ReceiverMode::BorrowedReadOnly;
         FuncType *funcType = nullptr;
         std::vector<string> paramNames;
     };
@@ -194,6 +195,7 @@ private:
     llvm::StringMap<AccessKind> memberAccess;
     llvm::StringSet<> embeddedMembers;
     llvm::StringMap<FuncType *> methodTypes;
+    llvm::StringMap<ReceiverMode> methodReceiverModes;
     llvm::StringMap<std::vector<string>> methodParamNames;
     std::unordered_map<std::string, TraitMethodEntry> traitMethodTypes;
 
@@ -227,7 +229,9 @@ public:
     bool isReprC() const { return declKind == StructDeclKind::ReprC; }
     bool isNativeDecl() const { return declKind == StructDeclKind::Native; }
     void setDeclKind(StructDeclKind kind) { declKind = kind; }
-    bool isAppliedTemplateInstance() const { return !appliedTemplateName.empty(); }
+    bool isAppliedTemplateInstance() const {
+        return !appliedTemplateName.empty();
+    }
     const string &getAppliedTemplateName() const { return appliedTemplateName; }
     const std::vector<TypeClass *> &getAppliedTypeArgs() const {
         return appliedTypeArgs;
@@ -235,19 +239,20 @@ public:
     const CompilationUnit *getAppliedTemplateOwnerUnit() const {
         return appliedTemplateOwnerUnit;
     }
-    void setAppliedTemplateInfo(string templateName,
-                                std::vector<TypeClass *> typeArgs,
-                                const CompilationUnit *templateOwnerUnit = nullptr);
+    void setAppliedTemplateInfo(
+        string templateName, std::vector<TypeClass *> typeArgs,
+        const CompilationUnit *templateOwnerUnit = nullptr);
 
     void complete(const llvm::StringMap<ValueTy> &newMembers,
                   const llvm::StringMap<AccessKind> &newMemberAccess = {},
                   const llvm::StringSet<> &newEmbeddedMembers = {});
 
-    void addMethodType(llvm::StringRef name, FuncType *funcType,
-                       std::vector<string> paramNames = {});
+    void addMethodType(llvm::StringRef name, ReceiverMode receiverMode,
+                       FuncType *funcType, std::vector<string> paramNames = {});
 
     void addTraitMethodType(llvm::StringRef traitName,
-                            llvm::StringRef methodName, FuncType *funcType,
+                            llvm::StringRef methodName,
+                            ReceiverMode receiverMode, FuncType *funcType,
                             std::vector<string> paramNames = {});
 
     ValueTy *getMember(llvm::StringRef name) {
@@ -278,6 +283,15 @@ public:
         return it->second;
     }
 
+    std::optional<ReceiverMode> getMethodReceiverMode(
+        llvm::StringRef name) const {
+        auto it = methodReceiverModes.find(name);
+        if (it == methodReceiverModes.end()) {
+            return std::nullopt;
+        }
+        return it->second;
+    }
+
     FuncType *getTraitMethodType(llvm::StringRef traitName,
                                  llvm::StringRef methodName) {
         return getTraitMethodTypeByKey(
@@ -290,6 +304,23 @@ public:
             return nullptr;
         }
         return it->second.funcType;
+    }
+
+    std::optional<ReceiverMode> getTraitMethodReceiverModeByKey(
+        llvm::StringRef key) const {
+        auto it = traitMethodTypes.find(key.str());
+        if (it == traitMethodTypes.end()) {
+            return std::nullopt;
+        }
+        return it->second.receiverMode;
+    }
+
+    std::optional<ReceiverMode> getMethodReceiverModeByKey(
+        llvm::StringRef key) const {
+        if (auto inherent = getMethodReceiverMode(key)) {
+            return inherent;
+        }
+        return getTraitMethodReceiverModeByKey(key);
     }
 
     const std::vector<string> *getMethodParamNames(llvm::StringRef name) const {
@@ -315,7 +346,8 @@ public:
         return &it->second.paramNames;
     }
 
-    const TraitMethodEntry *getTraitMethodEntryByKey(llvm::StringRef key) const {
+    const TraitMethodEntry *getTraitMethodEntryByKey(
+        llvm::StringRef key) const {
         auto it = traitMethodTypes.find(key.str());
         if (it == traitMethodTypes.end()) {
             return nullptr;
@@ -775,14 +807,12 @@ public:
         return getType(llvm::StringRef(name.tochara(), name.size()));
     }
 
-    StructType *createOpaqueStructType(const ::string &fullName,
-                                       StructDeclKind declKind =
-                                           StructDeclKind::Native,
-                                       string appliedTemplateName = {},
-                                       std::vector<TypeClass *> appliedTypeArgs =
-                                           {},
-                                       const CompilationUnit *templateOwnerUnit =
-                                           nullptr) {
+    StructType *createOpaqueStructType(
+        const ::string &fullName,
+        StructDeclKind declKind = StructDeclKind::Native,
+        string appliedTemplateName = {},
+        std::vector<TypeClass *> appliedTypeArgs = {},
+        const CompilationUnit *templateOwnerUnit = nullptr) {
         if (auto *type = getType(fullName)) {
             auto *structType = type->as<StructType>();
             if (structType) {
@@ -791,15 +821,16 @@ public:
                     structType->setAppliedTemplateInfo(
                         std::move(appliedTemplateName),
                         std::move(appliedTypeArgs),
-                        templateOwnerUnit ? templateOwnerUnit
-                                          : structType->getAppliedTemplateOwnerUnit());
+                        templateOwnerUnit
+                            ? templateOwnerUnit
+                            : structType->getAppliedTemplateOwnerUnit());
                 }
             }
             return structType;
         }
-        auto *structType = new StructType(fullName, declKind,
-                                          std::move(appliedTemplateName),
-                                          std::move(appliedTypeArgs));
+        auto *structType =
+            new StructType(fullName, declKind, std::move(appliedTemplateName),
+                           std::move(appliedTypeArgs));
         if (templateOwnerUnit && structType->isAppliedTemplateInstance()) {
             structType->setAppliedTemplateInfo(
                 structType->getAppliedTemplateName(),
@@ -809,18 +840,15 @@ public:
         return structType;
     }
 
-    StructType *createOpaqueStructType(const std::string &fullName,
-                                       StructDeclKind declKind =
-                                           StructDeclKind::Native,
-                                       string appliedTemplateName = {},
-                                       std::vector<TypeClass *> appliedTypeArgs =
-                                           {},
-                                       const CompilationUnit *templateOwnerUnit =
-                                           nullptr) {
-        return createOpaqueStructType(string(fullName), declKind,
-                                      std::move(appliedTemplateName),
-                                      std::move(appliedTypeArgs),
-                                      templateOwnerUnit);
+    StructType *createOpaqueStructType(
+        const std::string &fullName,
+        StructDeclKind declKind = StructDeclKind::Native,
+        string appliedTemplateName = {},
+        std::vector<TypeClass *> appliedTypeArgs = {},
+        const CompilationUnit *templateOwnerUnit = nullptr) {
+        return createOpaqueStructType(
+            string(fullName), declKind, std::move(appliedTemplateName),
+            std::move(appliedTypeArgs), templateOwnerUnit);
     }
 
     PointerType *createPointerType(TypeClass *pointeeType) {
@@ -982,8 +1010,8 @@ public:
                     reusedOriginalMembers =
                         reusedOriginalMembers &&
                         internedMemberType == member.second.first;
-                    internedMembers[member.first()] = {
-                        internedMemberType, member.second.second};
+                    internedMembers[member.first()] = {internedMemberType,
+                                                       member.second.second};
                     internedMemberAccess[member.first()] =
                         structType->getMemberAccess(member.first());
                     if (structType->isEmbeddedMember(member.first())) {
@@ -995,8 +1023,9 @@ public:
                 llvm::StringMap<std::vector<string>> internedMethodParamNames;
                 for (const auto &method : structType->getMethodTypes()) {
                     auto *internedMethod = internType(method.second);
-                    auto *funcType = internedMethod ? internedMethod->as<FuncType>()
-                                                   : nullptr;
+                    auto *funcType = internedMethod
+                                         ? internedMethod->as<FuncType>()
+                                         : nullptr;
                     if (!funcType) {
                         return nullptr;
                     }
@@ -1008,11 +1037,13 @@ public:
                 }
 
                 std::vector<StructType::TraitMethodEntry> internedTraitMethods;
-                internedTraitMethods.reserve(structType->getTraitMethodTypes().size());
+                internedTraitMethods.reserve(
+                    structType->getTraitMethodTypes().size());
                 for (const auto &method : structType->getTraitMethodTypes()) {
                     auto *internedMethod = internType(method.second.funcType);
-                    auto *funcType = internedMethod ? internedMethod->as<FuncType>()
-                                                   : nullptr;
+                    auto *funcType = internedMethod
+                                         ? internedMethod->as<FuncType>()
+                                         : nullptr;
                     if (!funcType) {
                         return nullptr;
                     }
@@ -1030,7 +1061,8 @@ public:
                         structType->getAppliedTemplateOwnerUnit());
                 }
                 if (!structType->isOpaque()) {
-                    targetStruct->complete(internedMembers, internedMemberAccess,
+                    targetStruct->complete(internedMembers,
+                                           internedMemberAccess,
                                            internedEmbeddedMembers);
                 }
                 for (const auto &method : internedMethodTypes) {
@@ -1043,14 +1075,17 @@ public:
                         if (foundParamNames != internedMethodParamNames.end()) {
                             paramNames = foundParamNames->second;
                         }
-                        targetStruct->addMethodType(method.first(),
-                                                    method.second,
-                                                    std::move(paramNames));
+                        auto receiverMode =
+                            structType->getMethodReceiverMode(method.first());
+                        assert(receiverMode.has_value());
+                        targetStruct->addMethodType(
+                            method.first(), *receiverMode, method.second,
+                            std::move(paramNames));
                     }
                 }
                 for (const auto &method : internedTraitMethods) {
-                    auto key = traitMethodSlotKey(method.traitName,
-                                                  method.methodName);
+                    auto key =
+                        traitMethodSlotKey(method.traitName, method.methodName);
                     if (!targetStruct->getTraitMethodTypeByKey(key) ||
                         targetStruct->getTraitMethodTypeByKey(key) !=
                             method.funcType) {
@@ -1059,7 +1094,8 @@ public:
                                             method.traitName.size()),
                             llvm::StringRef(method.methodName.tochara(),
                                             method.methodName.size()),
-                            method.funcType, method.paramNames);
+                            method.receiverMode, method.funcType,
+                            method.paramNames);
                     }
                 }
                 return targetStruct;
@@ -1078,7 +1114,6 @@ public:
 
             addType(type->full_name, type);
             return internStructContents(structType);
-
         }
         if (auto *qualified = type->as<ConstType>()) {
             auto *baseType = internType(qualified->getBaseType());

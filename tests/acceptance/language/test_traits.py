@@ -45,7 +45,7 @@ def test_trait_surface_json_includes_trait_impl_and_dyn_type_nodes(
         '"selfType": "Point"',
         '"targetType": "Hash dyn"',
         '"declaredType": "Hash dyn"',
-        '"receiverAccess": "set"',
+        '"receiverMode": "set"',
     ]:
         assert_contains(json_out, needle, label="trait surface json")
 
@@ -114,7 +114,7 @@ def test_trait_v0_impl_for_body_supports_member_static_and_dyn_calls(
     assert_contains(ir, "define i32 @main()", label="trait impl-for ir")
     assert_regex(
         ir,
-        r"call i32 @.*Point\.__trait__\..*Hash\.hash\(ptr ",
+        r"call i32 @.*Point\.__trait__\..*Hash\.hash\.__receiver_get\(ptr ",
         label="trait impl-for ir",
     )
     assert_contains(ir, "@__lona_trait_witness__", label="trait impl-for ir")
@@ -182,7 +182,7 @@ def test_trait_v0_struct_local_impl_body_sugar_supports_json_and_dispatch(
     assert_contains(ir, "define i32 @main()", label="trait struct-local impl ir")
     assert_regex(
         ir,
-        r"call i32 @.*Point\.__trait__\..*Hash\.hash\(ptr ",
+        r"call i32 @.*Point\.__trait__\..*Hash\.hash\.__receiver_get\(ptr ",
         label="trait struct-local impl ir",
     )
     assert_contains(
@@ -292,7 +292,7 @@ def test_trait_v0_static_qualified_calls_and_impl_validation(
     assert_contains(ir, "define i32 @main()", label="trait static dispatch ir")
     assert_regex(
         ir,
-        r"call i32 @.*Point\.hash\(ptr ",
+        r"call i32 @.*Point\.hash\.__receiver_get\(ptr ",
         label="trait static dispatch ir",
     )
 
@@ -324,8 +324,8 @@ def test_trait_v0_static_qualified_calls_and_impl_validation(
             }
             """,
             [
-                "trait-qualified receiver must be passed as an explicit self pointer",
-                "Write `Trait.method(&value, ...)`",
+                    "borrowed trait method `hash` requires an explicit self pointer",
+                    "Pass `&value`, or an existing concrete `Type*`.",
             ],
         ),
         (
@@ -373,7 +373,7 @@ def test_trait_v0_static_qualified_calls_and_impl_validation(
                 ret 0
             }
             """,
-            ["receiver access mismatch for `hash`"],
+                ["receiver mode mismatch for `hash`"],
         ),
         (
             "trait_impl_param_type_mismatch.lo",
@@ -471,7 +471,7 @@ def test_trait_v0_static_getters_accept_const_self_pointers(
         }
         """,
     )
-    assert_regex(ir, r"call i32 @.*Point\.hash\(ptr ", label="trait static const getter ir")
+    assert_regex(ir, r"call i32 @.*Point\.hash\.__receiver_get\(ptr ", label="trait static const getter ir")
     assert_contains(ir, "define i32 @main()", label="trait static const getter ir")
 
 
@@ -520,7 +520,7 @@ def test_trait_v0_allows_same_module_struct_types_in_trait_signatures(
         """,
     )
     assert_regex(ir, r"%.*Big = type \{ i32 \}", label="trait same-module struct ir")
-    assert_regex(ir, r"call i32 @.*Maker\.score\(ptr ", label="trait same-module struct ir")
+    assert_regex(ir, r"call i32 @.*Maker\.score\.__receiver_get\(ptr ", label="trait same-module struct ir")
 
 
 def test_trait_v0_qualified_calls_bind_named_args_from_trait_signatures(
@@ -556,7 +556,7 @@ def test_trait_v0_qualified_calls_bind_named_args_from_trait_signatures(
     )
     assert_regex(
         ir,
-        r"call i32 @.*Point\.__trait__\..*Add\.add\(ptr [^,]+, i32 1\)",
+        r"call i32 @.*Point\.__trait__\..*Add\.add\.__receiver_get\(ptr [^,]+, i32 1\)",
         label="trait named args ir",
     )
 
@@ -604,7 +604,7 @@ def test_trait_v0_supports_multiple_traits_with_same_method_name(
         """,
     )
     assert_contains(ir, "@__lona_trait_witness__", label="trait same method name ir")
-    assert_regex(ir, r"call i32 @.*Point\.hash\(ptr ", label="trait same method name ir")
+    assert_regex(ir, r"call i32 @.*Point\.hash\.__receiver_get\(ptr ", label="trait same method name ir")
     assert_contains(
         ir,
         "call i32 %trait.slot(ptr %trait.data)",
@@ -776,7 +776,7 @@ def test_trait_v0_inherent_methods_still_win_over_trait_impl_body_methods(
     assert_contains(ir, "__trait__", label="trait inherent precedence ir")
     assert_regex(
         ir,
-        r"call i32 @.*Point\.read\(ptr ",
+        r"call i32 @.*Point\.read\.__receiver_get\(ptr ",
         label="trait inherent precedence ir",
     )
 
@@ -878,12 +878,12 @@ def test_trait_v0_explicit_receiver_trait_path_does_not_shadow_real_members(
     )
     assert_regex(
         ir,
-        r"call i32 @.*View\.read\(ptr ",
+        r"call i32 @.*View\.read\.__receiver_get\(ptr ",
         label="trait receiver path member shadowing ir",
     )
     assert_regex(
         ir,
-        r"call i32 @.*Point\.__trait__\..*Hash\.read\(ptr ",
+        r"call i32 @.*Point\.__trait__\..*Hash\.read\.__receiver_get\(ptr ",
         label="trait receiver path member shadowing ir",
     )
 
@@ -1052,7 +1052,7 @@ def test_trait_v0_allows_self_and_forward_local_trait_dyn_signatures(
         """,
     )
     assert_contains(ir, "@__lona_trait_witness__", label="trait local dyn signatures ir")
-    assert_regex(ir, r"call i32 @.*Point\.merge\(ptr ", label="trait local dyn signatures ir")
+    assert_regex(ir, r"call i32 @.*Point\.merge\.__receiver_get\(ptr ", label="trait local dyn signatures ir")
     assert_contains(ir, "call i32 %trait.slot(ptr %trait.data)", label="trait local dyn signatures ir")
 
 

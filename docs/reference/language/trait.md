@@ -28,14 +28,16 @@ trait Hash {
 
 - `trait` 是新的顶层声明。
 - trait body 里只允许方法签名。
-- trait 方法可以写 `set def`，receiver access 会参与 impl 满足性检查。
+- trait 方法可以写 `def`、`set def`、`var def`，receiver mode 会参与 impl 满足性检查。
 - trait 方法当前不能在 trait body 里带函数体。
 
 例如：
 
 ```lona
 trait CounterLike {
+    def read() i32
     set def bump(step i32) i32
+    var def bumped(step i32) Self
 }
 ```
 
@@ -58,7 +60,7 @@ impl Hash for Point {
 - `impl Hash for Point { ... }` 允许直接在 impl body 里写 trait 方法实现。
 - 这类 impl body 方法属于 trait 专属方法命名空间，不会和普通 inherent method 共用同一个方法槽。
 - `impl[T Trait] Trait for Box[T] { ... }` 表示“对所有满足该单 bound 的具体实例，都提供一份显式 trait 实现”。
-- 编译器会按方法名、receiver access、参数个数、参数 binding kind、参数类型、返回类型检查 impl body 与 trait 声明是否一致。
+- 编译器会按方法名、receiver mode、参数个数、参数 binding kind、参数类型、返回类型检查 impl body 与 trait 声明是否一致。
 - `impl Trait for Type { ... }` 已支持 local self、imported self、applied self 和 generic self。
 - 这版 impl body 里只允许 trait 已声明的方法定义；不允许额外 helper method。
 - trait 已声明的方法必须全部在 impl body 里显式给出。
@@ -113,12 +115,13 @@ ret Hash.hash(&point)
 - 必须显式写成 `Trait.method(&value, ...)`，或者在已经有 `Type*` 时写 `Trait.method(ptr, ...)`。
 - imported trait 也一样，例如 `dep.Hash.hash(&point)`。
 - bounded generic body 里这条路径仍然可用；例如 `def hash_one[T Hash](value T) i32 { ret Hash.hash(&value) }`。
-- 第一个源码实参就是显式 receiver；编译器会把它当成 hidden self pointer。
+- 第一个源码实参就是显式 receiver；`def`/`set def` 传 self pointer，`var def` 传 `Self` 值。
 - 这条路径暂时不接受临时值 receiver，例如 `Trait.method(&Point(...), ...)`。
 - 编译器会先验证 receiver 的 concrete type 是否有 visible impl。
 - 通过后会直接绑定到 concrete method 实现；如果方法来自 `impl Trait for Type { ... }`，也会绑定到这份实现，不经过 witness table。
-- getter 需要 `Self const*`；setter 需要 `Self*`。
+- `def` 需要 `Self const*`，`set def` 需要 `Self*`，`var def` 需要 `Self` 值。
 - 因此 `Trait.bump(&const_value, ...)` 会被拒绝。
+- `var def` 的限定调用写成 `Trait.bumped(value, ...)`；它复制 receiver，不接受 `&value`。
 
 当前不做的事：
 
@@ -140,7 +143,7 @@ ret point.Hash.hash()
 - 这里的 `Trait` 必须是当前模块里定义的 trait 名。
 - receiver 必须是 concrete struct value，或者可解引用到 concrete struct 的 `Type*`。
 - 这条路径会先验证该 concrete type 是否存在 visible impl。
-- getter / setter 的 receiver 可写性规则和普通 trait 调用一致；`set def` 仍然要求可写 receiver。
+- receiver mode 与普通 trait 调用一致；`set def` 要求可写 receiver，`var def` 会复制 concrete value。
 - 如果对象上真的存在名为 `Trait` 的普通成员路径，那么普通成员路径优先，不会强行改按 trait 路径解释。
 
 例如：
@@ -235,25 +238,33 @@ ret h.hash()
 
 规则：
 
-- getter-style 方法可以在 `Trait dyn` 和 `Trait const dyn` 上调用。
+- `def` 可以在 `Trait dyn` 和 `Trait const dyn` 上调用。
 - `set def` 只可以在可写的 `Trait dyn` 上调用。
+- `var def` 可以在两者上调用：运行时从 erased data pointer 复制 concrete 对象，再调用值 receiver 方法；原对象不变。
 - `cast[Trait dyn](&value)` 只表示“构造 trait object”；结果是可写还是只读，由借用源的 pointee constness 决定。
-- 因此 mixed getter/setter trait 也可以构造 dyn object。
+- 因此混合三种 receiver mode 的 trait 也可以构造 dyn object。
 
 例如：
 
 ```lona
+struct Counter {
+    set value i32
+}
+
 trait CounterLike {
     def read() i32
     set def bump(step i32) i32
+    var def bumped(step i32) Counter
 }
 ```
 
 此时：
 
-- `cast[CounterLike dyn](&counter)` 可以调用 `read()` 和 `bump(...)`
+- `cast[CounterLike dyn](&counter)` 可以调用三种方法
 - `cast[CounterLike dyn](&const_counter)` 会得到 `CounterLike const dyn`
-- `CounterLike const dyn` 只能调用 `read()`，不能调用 `bump(...)`
+- `CounterLike const dyn` 可以调用 `read()` 和 `bumped(...)`，不能调用 `bump(...)`
+
+trait 方法签名在 receiver 以外提到裸 `Self` 时，无法为 `Trait dyn` 建立统一 slot 签名；这类方法仍可 concrete dispatch，但通过 dyn 调用会给出 object-safety 诊断。
 
 ## 8. 常见诊断
 
@@ -265,7 +276,7 @@ trait CounterLike {
 - `obj.method()` 命中多个同名 trait 方法时的歧义错误
 - `cast[Trait dyn](&temporary)` 的源值不可寻址
 - concrete type 没有实现目标 trait
-- `Trait.method(value, ...)` 少了显式 self pointer
+- borrowed trait 方法写成 `Trait.method(value, ...)`，缺少显式 self pointer
 - `set def` 被调用在只读的 `Trait const dyn`、`&const_value` 或只读的 `value.Trait.method(...)` receiver 上
 
 ## 9. 方法命名与歧义

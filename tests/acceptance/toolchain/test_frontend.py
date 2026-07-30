@@ -33,12 +33,12 @@ def test_compiler_version_prints_language_and_revision(compiler: CompilerHarness
 
 def test_acceptance_fixture_ir_variants(compiler: CompilerHarness, fixtures_dir: Path) -> None:
     base_ir = compiler.emit_ir(fixtures_dir / "acceptance_main.lo").expect_ok().stdout
-    assert_regex(base_ir, r"^define i64 @.*Complex\.add\(ptr [^,]+, i64 [^)]+\)", label="frontend ir")
+    assert_regex(base_ir, r"^define i64 @.*Complex\.add\.__receiver_get\(ptr [^,]+, i64 [^)]+\)", label="frontend ir")
     assert_contains(base_ir, "define i32 @fibo", label="frontend ir")
     assert_not_contains(base_ir, "llvm.dbg.declare", label="frontend ir")
 
     opt_ir = compiler.emit_ir(fixtures_dir / "acceptance_main.lo", optimize="-O3").expect_ok().stdout
-    assert_regex(opt_ir, r"^define i64 @.*Complex\.add\(ptr [^,]+, i64 [^)]+\)", label="optimized ir")
+    assert_regex(opt_ir, r"^define i64 @.*Complex\.add\.__receiver_get\(ptr [^,]+, i64 [^)]+\)", label="optimized ir")
     assert_contains(opt_ir, "define i32 @fibo", label="optimized ir")
 
     debug_ir = compiler.emit_ir(fixtures_dir / "acceptance_main.lo", debug=True).expect_ok().stdout
@@ -1078,7 +1078,7 @@ def test_trait_static_dispatch_lowers_to_direct_method_call(
     )
     ir = compiler.emit_ir(input_path).expect_ok().stdout
     assert_regex(ir, r"%.*Point.*= type \{ i32 \}", label="trait static dispatch ir")
-    assert_regex(ir, r"call i32 @.*Point\.hash\(ptr ", label="trait static dispatch ir")
+    assert_regex(ir, r"call i32 @.*Point\.hash\.__receiver_get\(ptr ", label="trait static dispatch ir")
     assert_not_contains(ir, "call i32 %", label="trait static dispatch ir")
     assert_not_contains(ir, "witness", label="trait static dispatch ir")
 
@@ -1119,7 +1119,7 @@ def test_trait_dyn_dispatch_lowers_to_witness_indirection_without_struct_vptrs(
     assert_contains(ir, "@__lona_trait_witness__", label="trait dyn dispatch ir")
     assert_regex(
         ir,
-        r"@__lona_trait_witness__.* = internal constant \[1 x ptr\] \[ptr @.*Point\.__trait__\..*Hash\.hash\]",
+        r"@__lona_trait_witness__.* = internal constant \[1 x ptr\] \[ptr @.*Point\.__trait__\..*Hash\.hash\.__receiver_get\]",
         label="trait dyn dispatch ir",
     )
     assert_contains(
@@ -1135,7 +1135,7 @@ def test_trait_dyn_dispatch_lowers_to_witness_indirection_without_struct_vptrs(
     assert_not_contains(ir, "type { ptr, i32 }", label="trait dyn dispatch ir")
 
 
-def test_trait_dyn_indirect_results_keep_self_before_sret_in_witness_calls(
+def test_trait_dyn_indirect_results_keep_sret_before_self_in_witness_calls(
     compiler: CompilerHarness,
 ) -> None:
     input_path = compiler.write_source(
@@ -1180,12 +1180,12 @@ def test_trait_dyn_indirect_results_keep_self_before_sret_in_witness_calls(
     assert_regex(ir, r"%.*Big = type \{ i64, i64, i64 \}", label="trait dyn indirect result ir")
     assert_regex(
         ir,
-        r"^define void @.*Maker\.make\(ptr [^,]+, ptr [^)]+\)",
+        r"^define void @.*Maker\.make\.__receiver_get\(ptr [^,]+, ptr [^)]+\)",
         label="trait dyn indirect result ir",
     )
     assert_regex(
         ir,
-        r"call void %trait\.slot\(ptr %trait\.data, ptr [^)]+\)",
+        r"call void %trait\.slot\(ptr [^,]+, ptr %trait\.data\)",
         label="trait dyn indirect result ir",
     )
 

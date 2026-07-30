@@ -64,7 +64,7 @@ trait 信息首先进入 `ModuleInterface`，对应文件：
    - `impl Trait for Type { ... }` 会检查 orphan rule；
    - 同一可见程序图中的 `(Trait, Type)` 不能重复；
    - 编译器会验证 impl body 是否完整覆盖 trait 已声明的方法；
-   - 每个 body method 都会按 name、receiver access、参数个数、binding kind、参数类型和返回类型与 trait 方法签名对齐。
+   - 每个 body method 都会按 name、`ReceiverMode`、参数个数、binding kind、参数类型和返回类型与 trait 方法签名对齐。
 
 ## 3. `interfaceHash` 与可见接口边界
 
@@ -124,12 +124,14 @@ trait v0 没有把这些信息放进“实现细节”层，而是明确放进�
 
 收敛到同一个“按 trait 名命名”的语义类型。
 
-当前实现不再按“整个 trait 是否 dyn-compatible”一刀切，而是把 receiver mutability 放到方法级别：
+当前实现不再按“整个 trait 是否 dyn-compatible”一刀切，而是把统一的
+`ReceiverMode` 放到方法级别：
 
-- getter-style trait method 对应只读擦除 receiver
-- `set def` trait method 对应可写擦除 receiver
-- 只读 `Trait const dyn` 只能调用 getter-style 方法
-- 可写 `Trait dyn` 可以调用 getter 和 setter
+- `def` concrete receiver 是 `Self const*`
+- `set def` concrete receiver 是 `Self*`
+- `var def` concrete receiver 是 `Self`，dyn slot 通过 adapter thunk 从 erased pointer 复制 concrete value
+- 只读 `Trait const dyn` 可以调用 `def` 和 `var def`
+- 可写 `Trait dyn` 可以调用三种方法
 
 ## 6. trait object 的 HIR 形状
 
@@ -194,7 +196,8 @@ trait v0 没有把这些信息放进“实现细节”层，而是明确放进�
 - linkage 是 `InternalLinkage`
 - LLVM 类型是 `[N x ptr]`
 - `N` 等于 trait declaration 中的方法数
-- 每个 slot 都是对应 concrete inherent method 的函数地址
+- borrowed receiver slot 保存对应 concrete method 地址
+- value receiver slot 保存按 `(Trait, ConcreteType, Method)` 生成的 adapter thunk 地址
 
 可以把当前 witness table 近似理解成：
 
@@ -240,9 +243,10 @@ slot 顺序不是按名字排序，也不是按 lowering 时的偶然遍历顺�
 
 语义阶段会先根据 trait method 生成 slot function type：
 
-- 第一个参数总是擦除后的 receiver pointer
+- 第一个 source argument 总是擦除后的 receiver pointer
 - 后续参数直接来自 trait 方法签名
 - 返回类型直接来自 trait 方法签名
+- 如果存在 `sret`，它在 LLVM 参数列表中排在所有 source argument 之前
 
 概念上，一个 trait 方法：
 
@@ -258,9 +262,10 @@ def hash(x i32) i64
 
 当前实现里：
 
-- get-only receiver 会把这个 `self` 视为指向只读对象的擦除指针，也就是 `any const*`
+- `def` receiver 会把这个 `self` 视为指向只读对象的擦除指针，也就是 `any const*`
 - `set def` receiver 会把这个 `self` 视为可写擦除指针，也就是 `any*`
-- witness slot 里仍然直接保存 concrete method symbol 地址
+- `var def` slot 也接收只读 erased pointer，但 slot 中保存 adapter thunk；thunk 复制 concrete pointee 后按真实 `Self` 值 ABI 调用方法
+- borrowed slot 直接保存 concrete method symbol 地址
 - 调用点会按“方法 ABI”发起调用，而不是把它当普通 free function
 
 最后这点很重要。它保证了 native ABI 下那些特殊返回约定仍然成立，例如：
@@ -270,22 +275,25 @@ def hash(x i32) i64
 
 也就是说，虽然 slot 里的函数指针被擦除成了 `ptr`，真正发起间接调用时仍然会恢复到 trait method 对应的 ABI 语义。
 
-### 7.3 为什么当前不需要 adapter thunk
+### 7.3 value receiver adapter thunk
 
-在 v0 当前实现里，slot 直接保存具体方法符号地址；setter / getter 的差别已经能用“擦除后 receiver 指针是否带 const”表达，所以还不需要为了 receiver mutability 再引入额外 adapter thunk。
+`var def` 的 concrete ABI 以 `Self` 值作为第一个 source argument，而 dyn slot 必须从
+trait object 的 erased data pointer 出发，两者不能直接复用同一个函数地址。codegen 因此生成：
 
-这可以理解成当前 witness slot 依赖两条前提：
+```text
+thunk(sret?, any const* data, args...):
+    self = copy *cast[Concrete const*](data)
+    return Concrete.value_method(sret?, self, args...)
+```
 
-- trait 方法签名已经足够决定 slot 调用签名
-- concrete inherent method 的 ABI 与这条 trait 签名兼容
+这个 thunk 保证：
 
-如果未来支持：
+- writable/readonly trait object 都能调用 value receiver
+- `self` 的写入只影响副本
+- concrete 调用继续走小聚合打包、大聚合间接参数和 `sret` 的普通 native ABI
+- thunk 与真实调用都保持 `sret` 在 source arguments 之前
 
-- `set def` 的 dyn dispatch
-- owning trait object
-- 需要额外 metadata 的 runtime protocol
-
-那就很可能要把“slot 里直接存真实方法地址”改成“slot 里存 adapter thunk 地址”。
+`def` 和 `set def` 的 erased slot ABI 与 concrete pointer receiver ABI 兼容，仍直接保存真实方法地址。
 
 ## 8. `cast[Trait dyn](&value)` 的 IR 结果
 
@@ -308,7 +316,7 @@ lowering 的结果只是构造一个短生命周期或普通局部值：
 
 1. 从 trait object 里取出 witness pointer
 2. 按 slot index 取出方法函数地址
-3. 把 `data_ptr` 作为第一个实参，也就是擦除后的 receiver 传进去
+3. 如果调用需要 `sret`，先传结果地址，再把 `data_ptr` 作为第一个 source argument
 4. 再拼接其它显式参数
 
 因此动态路径的运行时成本明确包括：

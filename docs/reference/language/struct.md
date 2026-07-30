@@ -105,6 +105,11 @@ struct Counter {
         self.value = self.value + step
         ret self.value
     }
+
+    var def incremented(step i32) Self {
+        self.value = self.value + step
+        ret self
+    }
 }
 ```
 
@@ -115,13 +120,16 @@ struct Counter {
 - 因此，未标 `set` 的字段表示“这个槽位对结构体外部只读”；`set field` 才表示“这个槽位对结构体外部可写”。
 - 对值字段，外部访问未标 `set` 的 `obj.field` 时，结果会按 `FieldType const` 看待，所以后续既不能直接赋值，也不能在其上调用需要可写接收者的方法。
 - 对指针字段，未标 `set` 只冻结这个指针槽位本身，语义更接近 `P* const`，而不是 `Pointee const*`；也就是说它不自动承诺深层不可变。
-- 当前方法接收者 `self` 仍然隐式按指针传递，但默认方法等价于隐藏的 `self Counter const*`。
-- `set def` 方法的 hidden receiver 才是 `self Counter*`。因此普通 `def` 不能改写 `self`，根因不是“某个字段没标 `set`”，而是整个 receiver 已经是 `Self const*`。
+- 普通 `def` 的 receiver 是 `self Self const*`，表示只读借用；mutable/const 值和 `T*`/`T const*` 都可以调用。
+- `set def` 的 receiver 是 `self Self*`，表示可写借用。`T* const` 可以调用，因为顶层 `const` 只冻结指针槽位；`T const*` 不能调用。
+- `var def` 的 receiver 是 `self Self`。调用方先按普通值参数规则复制对象，方法体修改的是可写副本，不回写原对象。
+- `var def` 从 const receiver 复制时只丢弃当前对象最外层的 `const`。例如成员类型为 `T const*` 时，pointee 的 `const` 不会被递归丢弃。
 - 即使某个字段本身写成 `set field`，普通 `def` 里也仍然不能写 `self.field = ...`；因为通过 `self` 看到的是整对象只读视图。
 - 反过来，`set def` 拿到的是 `Self*`，所以它可以改写当前对象本身；这里字段是否标 `set` 不再限制结构体内部通过 writable receiver 修改自身。
 - 指针上的 dot-like / call-like 自动解引用同样适用于 `self`，所以方法体里仍然直接写 `self.value`、`self.next()`。
 - 方法调用语法不要求在接收者位置额外写 `&` 或 `ref`。
-- 如果接收者本身是临时值，编译器会在调用点先物化一个临时槽位，再把它的地址作为隐藏 `self` 传入；因此 `Vec2(1, 2).normalize()` 和 `Vec2(1, 2).normalize_mut()` 这类写法都允许。
+- 三种 receiver mode 都支持临时值；borrowed receiver 会先物化临时槽位，value receiver 走普通按值物化。
+- receiver mode 是签名和 ABI 身份的一部分，但不是重载维度；同一方法命名空间中的方法名必须唯一。
 
 例如：
 
@@ -153,20 +161,64 @@ struct Counter {
         self.value = self.value + step
         ret self.value
     }
+
+    var def incremented(step i32) Self {
+        self.value = self.value + step
+        ret self
+    }
 }
 
 var counter = Counter(value = 40)
-ret Counter.read(&counter) + Counter.inc(&counter, 2)
+var copy = Counter.incremented(counter, 2)
+ret Counter.read(&counter) + Counter.inc(&counter, 2) + copy.value
 ```
 
 规则：
 
 - `Type.method(&value, ...)` 是 ordinary struct method 的静态限定调用形式。
 - 这里不会再隐式注入 `self`；第一个源码实参就是显式暴露出来的 receiver。
-- 因此 getter 形式的方法要求 `Self const*`，setter 形式的方法要求 `Self*`。
+- 因此 `def`/`set def` 分别要求 `Self const*`/`Self*`，`var def` 要求 `Self` 值。
 - 如果你已经有指针，也可以直接写 `Type.method(ptr, ...)`。
 - 这条语法只绑定 ordinary inherent method，不会把 trait 方法混进来；trait 继续写 `Trait.method(&value, ...)`。
 - applied generic owner 也适用，例如 `Box[i32].read(&box)`、`Box[i32].map[bool](&box, ...)`。
+
+### 5.2 `extend Type` 扩展方法
+
+扩展方法用一个顶层 receiver scope 声明：
+
+```lona
+extend Counter {
+    def doubled() i32 {
+        ret self.value * 2
+    }
+
+    set def reset() {
+        self.value = 0
+    }
+
+    var def reset_copy() Self {
+        self.value = 0
+        ret self
+    }
+}
+
+extend i32 {
+    var def squared() i32 {
+        ret self * self
+    }
+}
+```
+
+规则：
+
+- `extend` 只出现在文件顶层，block 内只有实例方法；不存在静态方法。
+- target 可以是当前模块或直接导入的 concrete struct，也可以是 builtin scalar。pointer、tuple、array、`Trait dyn` 和裸 generic template 不是当前 target。
+- `Self` 在方法签名和方法体中表示 extension target；三种 receiver mode 与 inherent method 完全一致。
+- extension 不获得类型所有者权限。即使写 `set def` 或 `var def`，也只能通过目标类型对外公开为可写的字段或方法修改对象。
+- 当前模块和直接 import 模块的 extension 可见，间接 import 不会自动转发 extension。
+- dot lookup 顺序是 inherent method、extension method、trait fallback、injected member；inherent method 始终优先。
+- 同一 target/name 上出现多个可见 extension 直接报冲突，receiver mode 不参与消歧。
+- generic extension header、generic extension method 和 extension 方法引用不在当前实现范围内。
 
 ## 6. 字段与方法可以混合出现
 

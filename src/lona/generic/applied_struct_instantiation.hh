@@ -54,8 +54,8 @@ public:
 
 class MaterializationOps : public TypeOps {
 public:
-    virtual TypeClass *receiverPointeeType(StructType *structType,
-                                           AccessKind receiverAccess) const = 0;
+    virtual TypeClass *receiverType(StructType *structType,
+                                    ReceiverMode receiverMode) const = 0;
     virtual FuncType *createMethodFunctionType(
         const std::vector<TypeClass *> &argTypes, TypeClass *retType,
         const std::vector<BindingKind> &paramBindingKinds) const = 0;

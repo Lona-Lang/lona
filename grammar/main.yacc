@@ -13,10 +13,6 @@
         class AstVarDecl;
         class AstGlobalDecl;
         class TypeNode;
-        struct ExtensionMethodHead {
-            TypeNode *receiverType = nullptr;
-            AstToken *methodName = nullptr;
-        };
     }
 
     #include <cstdint>
@@ -75,18 +71,17 @@
         return cloned;
     }
 
-    AstVarDecl *
-    makeExtensionSelfParam(TypeNode *receiverType) {
-        auto selfLoc = receiverType ? receiverType->loc : location();
-        AstToken selfToken(TokenType::Field, "self", selfLoc);
-        return new AstVarDecl(BindingKind::Value, selfToken, receiverType);
+    ReceiverMode
+    receiverModeFromPrefix(int64_t prefix) {
+        switch (prefix) {
+            case 1:
+                return ReceiverMode::BorrowedReadWrite;
+            case 2:
+                return ReceiverMode::Value;
+            default:
+                return ReceiverMode::BorrowedReadOnly;
+        }
     }
-
-    AstFuncDecl *
-    makeExtensionFuncDecl(ExtensionMethodHead *head, AstNode *body,
-                          std::vector<AstGenericParam *> *typeParams,
-                          std::vector<AstNode *> *args, TypeNode *retType,
-                          AbiKind abiKind, AccessKind receiverAccess);
 
     TypeNode *
     makeStructSelfTypeSyntax(const AstToken &structName,
@@ -150,7 +145,6 @@
     TypeNode* typeNode;
     std::vector<TypeNode*>* type_seq;
     std::vector<AstNode*>* pointer_suffix;
-    ExtensionMethodHead* extension_method_head;
 }
 
 %locations
@@ -174,7 +168,7 @@
 %token TRUE "true" FALSE "false" NULL_KW "null"
 %token IF "if" ELSE "else" FOR "for"
 %token IMPORT "import"
-%token DEF "def" SET "set" STRUCT "struct" TRAIT "trait" IMPL "impl" DYN "dyn"
+%token DEF "def" SET "set" STRUCT "struct" TRAIT "trait" IMPL "impl" EXTEND "extend" DYN "dyn"
 %token NEWLINE "newline"
 %token ASSIGN_ADD "+=" ASSIGN_SUB "-="
 %token ASSIGN_MUL "*=" ASSIGN_DIV "/=" ASSIGN_MOD "%="
@@ -202,24 +196,22 @@
 %right unary
 
 %type <node> pragram pragram_stat
-%type <node> struct_decl trait_decl impl_decl struct_impl_decl func_decl trait_func_decl import_stat global_decl
-%type <node> struct_stat trait_stat stat
+%type <node> struct_decl extend_decl trait_decl impl_decl struct_impl_decl func_decl trait_func_decl import_stat global_decl
+%type <node> struct_stat extend_stat trait_stat stat
 %type <node> stat_if stat_for stat_ret stat_break stat_continue stat_expr
 %type <node> call_like cast_expr sizeof_expr tuple_literal brace_init brace_init_item call_arg named_call_arg
 %type <node> variable final_expr expr_assign_left expr_getpointee expr expr_assign expr_binOp expr_unary
 %type <node> expr_paren atom_expr postfix_expr type_apply_expr dot_like dot_like_name func_ref_expr func_ref_target
 %type <node> param_decl var_def trait_var_def
-%type <stat_list> pragram_statlist struct_statlist trait_statlist stat_list stat_compound
+%type <stat_list> pragram_statlist struct_statlist extend_statlist trait_statlist stat_list stat_compound
 %type <var_decl> field_decl var_decl
 
 %type <typeNode> single_type type_primary postfix_type func_ptr_type type_name tuple_type func_param_type
-%type <typeNode> extension_simple_receiver_type
-%type <extension_method_head> extension_method_head
 
 %type <seq> expr_seq param_decl_seq brace_inline_body brace_line_body brace_line_entry_seq call_arg_seq type_bracket_item_seq
 %type <type_seq> type_name_seq
 %type <type_seq> func_param_type_seq
-%type <counter> opt_newlines opt_brace_line_comma opt_set_prefix
+%type <counter> opt_newlines opt_brace_line_comma opt_receiver_prefix
 %type <tag> tag_entry
 %type <tags> tag_line tag_entry_seq
 %type <token_seq> tag_arg_seq
@@ -231,12 +223,6 @@
 %destructor { delete $$; } <tag> <generic_param> <node> <stat_list> <var_decl> <typeNode>
 %destructor { lona::deletePointerVector($$); } <seq> <tags> <generic_param_seq> <type_seq>
 %destructor { delete $$; } <token_seq>
-%destructor {
-    if ($$) {
-        delete $$->receiverType;
-        delete $$;
-    }
-} <extension_method_head>
 
 %start pragram
 
@@ -272,6 +258,7 @@ pragram_stat
     | global_decl { $$ = $1; }
     | trait_decl { $$ = $1; }
     | impl_decl { $$ = $1; }
+    | extend_decl { $$ = $1; }
     ;
 
 import_stat
@@ -388,9 +375,10 @@ stat_continue
     }
     ;
 
-opt_set_prefix
+opt_receiver_prefix
     : %empty { $$ = 0; }
     | SET { $$ = 1; }
+    | VAR { $$ = 2; }
     ;
 
 opt_type_params
@@ -428,128 +416,106 @@ generic_param
     ;
 
 func_decl
-    : opt_set_prefix DEF FIELD opt_type_params '(' opt_newlines ')' NEWLINE {
+    : opt_receiver_prefix DEF FIELD opt_type_params '(' opt_newlines ')' NEWLINE {
         $$ = new AstFuncDecl(*$3, nullptr, $4, nullptr, nullptr, AbiKind::Native,
-                             $1 ? AccessKind::GetSet : AccessKind::GetOnly);
+                             receiverModeFromPrefix($1));
     }
-    | opt_set_prefix DEF FIELD opt_type_params '(' opt_newlines ')' type_name NEWLINE {
+    | opt_receiver_prefix DEF FIELD opt_type_params '(' opt_newlines ')' type_name NEWLINE {
         $$ = new AstFuncDecl(*$3, nullptr, $4, nullptr, $8, AbiKind::Native,
-                             $1 ? AccessKind::GetSet : AccessKind::GetOnly);
+                             receiverModeFromPrefix($1));
     }
-    | opt_set_prefix DEF FIELD opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' NEWLINE {
+    | opt_receiver_prefix DEF FIELD opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' NEWLINE {
         $$ = new AstFuncDecl(*$3, nullptr, $4, $7, nullptr, AbiKind::Native,
-                             $1 ? AccessKind::GetSet : AccessKind::GetOnly);
+                             receiverModeFromPrefix($1));
     }
-    | opt_set_prefix DEF FIELD opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' type_name NEWLINE {
+    | opt_receiver_prefix DEF FIELD opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' type_name NEWLINE {
         $$ = new AstFuncDecl(*$3, nullptr, $4, $7, $10, AbiKind::Native,
-                             $1 ? AccessKind::GetSet : AccessKind::GetOnly);
+                             receiverModeFromPrefix($1));
     }
-    | opt_set_prefix DEF FIELD opt_type_params '(' opt_newlines ')' stat_compound {
+    | opt_receiver_prefix DEF FIELD opt_type_params '(' opt_newlines ')' stat_compound {
         $$ = new AstFuncDecl(*$3, $8, $4, nullptr, nullptr, AbiKind::Native,
-                             $1 ? AccessKind::GetSet : AccessKind::GetOnly);
+                             receiverModeFromPrefix($1));
     }
-    | opt_set_prefix DEF FIELD opt_type_params '(' opt_newlines ')' type_name stat_compound {
+    | opt_receiver_prefix DEF FIELD opt_type_params '(' opt_newlines ')' type_name stat_compound {
         $$ = new AstFuncDecl(*$3, $9, $4, nullptr, $8, AbiKind::Native,
-                             $1 ? AccessKind::GetSet : AccessKind::GetOnly);
+                             receiverModeFromPrefix($1));
     }
-    | opt_set_prefix DEF FIELD opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' stat_compound {
+    | opt_receiver_prefix DEF FIELD opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' stat_compound {
         $$ = new AstFuncDecl(*$3, $10, $4, $7, nullptr, AbiKind::Native,
-                             $1 ? AccessKind::GetSet : AccessKind::GetOnly);
+                             receiverModeFromPrefix($1));
     }
-    | opt_set_prefix DEF FIELD opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' type_name stat_compound {
+    | opt_receiver_prefix DEF FIELD opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' type_name stat_compound {
         $$ = new AstFuncDecl(*$3, $11, $4, $7, $10, AbiKind::Native,
-                             $1 ? AccessKind::GetSet : AccessKind::GetOnly);
+                             receiverModeFromPrefix($1));
     }
-    | opt_set_prefix DEF extension_method_head opt_type_params '(' opt_newlines ')' NEWLINE {
-        $$ = makeExtensionFuncDecl($3, nullptr, $4, nullptr, nullptr,
-                                   AbiKind::Native,
-                                   $1 ? AccessKind::GetSet
-                                      : AccessKind::GetOnly);
+    ;
+
+extend_decl
+    : EXTEND type_name '{' '}' {
+        $$ = new AstExtendDecl($2, new AstStatList(), @$);
     }
-    | opt_set_prefix DEF extension_method_head opt_type_params '(' opt_newlines ')' type_name NEWLINE {
-        $$ = makeExtensionFuncDecl($3, nullptr, $4, nullptr, $8,
-                                   AbiKind::Native,
-                                   $1 ? AccessKind::GetSet
-                                      : AccessKind::GetOnly);
+    | EXTEND type_name extend_statlist '}' {
+        $$ = new AstExtendDecl($2, $3, @$);
     }
-    | opt_set_prefix DEF extension_method_head opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' NEWLINE {
-        $$ = makeExtensionFuncDecl($3, nullptr, $4, $7, nullptr,
-                                   AbiKind::Native,
-                                   $1 ? AccessKind::GetSet
-                                      : AccessKind::GetOnly);
+    ;
+
+extend_statlist
+    : '{' extend_stat {
+        $$ = new AstStatList($2);
     }
-    | opt_set_prefix DEF extension_method_head opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' type_name NEWLINE {
-        $$ = makeExtensionFuncDecl($3, nullptr, $4, $7, $10,
-                                   AbiKind::Native,
-                                   $1 ? AccessKind::GetSet
-                                      : AccessKind::GetOnly);
+    | '{' NEWLINE {
+        $$ = new AstStatList();
     }
-    | opt_set_prefix DEF extension_method_head opt_type_params '(' opt_newlines ')' stat_compound {
-        $$ = makeExtensionFuncDecl($3, $8, $4, nullptr, nullptr,
-                                   AbiKind::Native,
-                                   $1 ? AccessKind::GetSet
-                                      : AccessKind::GetOnly);
+    | extend_statlist NEWLINE {
+        $$ = $1;
     }
-    | opt_set_prefix DEF extension_method_head opt_type_params '(' opt_newlines ')' type_name stat_compound {
-        $$ = makeExtensionFuncDecl($3, $9, $4, nullptr, $8,
-                                   AbiKind::Native,
-                                   $1 ? AccessKind::GetSet
-                                      : AccessKind::GetOnly);
+    | extend_statlist extend_stat {
+        $$ = $1;
+        $$->push($2);
     }
-    | opt_set_prefix DEF extension_method_head opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' stat_compound {
-        $$ = makeExtensionFuncDecl($3, $10, $4, $7, nullptr,
-                                   AbiKind::Native,
-                                   $1 ? AccessKind::GetSet
-                                      : AccessKind::GetOnly);
-    }
-    | opt_set_prefix DEF extension_method_head opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' type_name stat_compound {
-        $$ = makeExtensionFuncDecl($3, $11, $4, $7, $10,
-                                   AbiKind::Native,
-                                   $1 ? AccessKind::GetSet
-                                      : AccessKind::GetOnly);
+    ;
+
+extend_stat
+    : func_decl { $$ = $1; }
+    | tag_stat { $$ = $1; }
+    | error NEWLINE {
+        $$ = nullptr;
+        yyerrok;
     }
     ;
 
 trait_func_decl
-    : opt_set_prefix DEF FIELD opt_type_params '(' opt_newlines ')' NEWLINE {
+    : opt_receiver_prefix DEF FIELD opt_type_params '(' opt_newlines ')' NEWLINE {
         $$ = new AstFuncDecl(*$3, nullptr, $4, nullptr, nullptr,
-                             AbiKind::Native,
-                             $1 ? AccessKind::GetSet : AccessKind::GetOnly);
+                             AbiKind::Native, receiverModeFromPrefix($1));
     }
-    | opt_set_prefix DEF FIELD opt_type_params '(' opt_newlines ')' type_name NEWLINE {
+    | opt_receiver_prefix DEF FIELD opt_type_params '(' opt_newlines ')' type_name NEWLINE {
         $$ = new AstFuncDecl(*$3, nullptr, $4, nullptr, $8,
-                             AbiKind::Native,
-                             $1 ? AccessKind::GetSet : AccessKind::GetOnly);
+                             AbiKind::Native, receiverModeFromPrefix($1));
     }
-    | opt_set_prefix DEF FIELD opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' NEWLINE {
+    | opt_receiver_prefix DEF FIELD opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' NEWLINE {
         $$ = new AstFuncDecl(*$3, nullptr, $4, $7, nullptr,
-                             AbiKind::Native,
-                             $1 ? AccessKind::GetSet : AccessKind::GetOnly);
+                             AbiKind::Native, receiverModeFromPrefix($1));
     }
-    | opt_set_prefix DEF FIELD opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' type_name NEWLINE {
+    | opt_receiver_prefix DEF FIELD opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' type_name NEWLINE {
         $$ = new AstFuncDecl(*$3, nullptr, $4, $7, $10,
-                             AbiKind::Native,
-                             $1 ? AccessKind::GetSet : AccessKind::GetOnly);
+                             AbiKind::Native, receiverModeFromPrefix($1));
     }
-    | opt_set_prefix DEF FIELD opt_type_params '(' opt_newlines ')' stat_compound {
+    | opt_receiver_prefix DEF FIELD opt_type_params '(' opt_newlines ')' stat_compound {
         $$ = new AstFuncDecl(*$3, $8, $4, nullptr, nullptr,
-                             AbiKind::Native,
-                             $1 ? AccessKind::GetSet : AccessKind::GetOnly);
+                             AbiKind::Native, receiverModeFromPrefix($1));
     }
-    | opt_set_prefix DEF FIELD opt_type_params '(' opt_newlines ')' type_name stat_compound {
+    | opt_receiver_prefix DEF FIELD opt_type_params '(' opt_newlines ')' type_name stat_compound {
         $$ = new AstFuncDecl(*$3, $9, $4, nullptr, $8,
-                             AbiKind::Native,
-                             $1 ? AccessKind::GetSet : AccessKind::GetOnly);
+                             AbiKind::Native, receiverModeFromPrefix($1));
     }
-    | opt_set_prefix DEF FIELD opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' stat_compound {
+    | opt_receiver_prefix DEF FIELD opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' stat_compound {
         $$ = new AstFuncDecl(*$3, $10, $4, $7, nullptr,
-                             AbiKind::Native,
-                             $1 ? AccessKind::GetSet : AccessKind::GetOnly);
+                             AbiKind::Native, receiverModeFromPrefix($1));
     }
-    | opt_set_prefix DEF FIELD opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' type_name stat_compound {
+    | opt_receiver_prefix DEF FIELD opt_type_params '(' opt_newlines param_decl_seq opt_newlines ')' type_name stat_compound {
         $$ = new AstFuncDecl(*$3, $11, $4, $7, $10,
-                             AbiKind::Native,
-                             $1 ? AccessKind::GetSet : AccessKind::GetOnly);
+                             AbiKind::Native, receiverModeFromPrefix($1));
     }
     ;
 
@@ -1116,24 +1082,6 @@ dot_like_name
     | dot_like_name '.' opt_newlines FIELD { $$ = new AstDotLike($1, $4); }
     ;
 
-extension_simple_receiver_type
-    : FIELD {
-        $$ = new BaseTypeNode($1->text, @$);
-    }
-    | TYPE {
-        $$ = new BaseTypeNode($1->text, @$);
-    }
-    ;
-
-extension_method_head
-    : extension_simple_receiver_type '.' opt_newlines FIELD {
-        $$ = new ExtensionMethodHead{$1, $4};
-    }
-    | '(' opt_newlines type_name opt_newlines ')' '.' opt_newlines FIELD {
-        $$ = new ExtensionMethodHead{$3, $8};
-    }
-    ;
-
 impl_self_type_atom
     : dot_like_name {
         $$ = new BaseTypeNode($1, @$);
@@ -1159,45 +1107,6 @@ impl_self_type
 
 
 %%
-
-namespace {
-
-AstFuncDecl *
-makeExtensionFuncDecl(ExtensionMethodHead *head, AstNode *body,
-                      std::vector<AstGenericParam *> *typeParams,
-                      std::vector<AstNode *> *args, TypeNode *retType,
-                      AbiKind abiKind, AccessKind receiverAccess) {
-    if (!head || !head->receiverType || !head->methodName) {
-        if (args) {
-            for (auto *arg : *args) {
-                delete arg;
-            }
-        }
-        delete args;
-        delete body;
-        delete retType;
-        delete head;
-        return nullptr;
-    }
-
-    auto *allArgs = new std::vector<AstNode *>;
-    allArgs->push_back(makeExtensionSelfParam(head->receiverType));
-    head->receiverType = nullptr;
-    if (args) {
-        for (auto *arg : *args) {
-            allArgs->push_back(arg);
-        }
-        delete args;
-    }
-
-    auto *decl = new AstFuncDecl(*head->methodName, body, typeParams, allArgs,
-                                 retType, abiKind, receiverAccess, true);
-    delete head->receiverType;
-    delete head;
-    return decl;
-}
-
-}  // namespace
 
 void lona::Parser::error(const location_type &l, const std::string &err_message) {
     driver.reportSyntaxError(l, err_message);

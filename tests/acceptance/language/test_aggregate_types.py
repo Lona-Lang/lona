@@ -122,8 +122,8 @@ def test_tuples_small_aggregates_and_method_abi_shapes(compiler: CompilerHarness
         }
         """,
     )
-    assert_regex(method_abi_ir, r"^define i64 @.*Pair\.swap\(ptr [^,]+, i32 [^)]+\)", label="method abi ir")
-    assert_regex(method_abi_ir, r"call i64 @.*Pair\.swap\(ptr [^,]+, i32 3\)", label="method abi ir")
+    assert_regex(method_abi_ir, r"^define i64 @.*Pair\.swap\.__receiver_get\(ptr [^,]+, i32 [^)]+\)", label="method abi ir")
+    assert_regex(method_abi_ir, r"call i64 @.*Pair\.swap\.__receiver_get\(ptr [^,]+, i32 3\)", label="method abi ir")
 
     method_direct_return_ir = _emit_ir(
         compiler,
@@ -147,8 +147,8 @@ def test_tuples_small_aggregates_and_method_abi_shapes(compiler: CompilerHarness
         """,
     )
     assert_regex(method_direct_return_ir, r"^%.*Triple = type \{ i32, i32, i32 \}", label="method direct return ir")
-    assert_regex(method_direct_return_ir, r"^define %.*Triple @.*Triple\.shift\(ptr [^,]+, i32 [^)]+\)", label="method direct return ir")
-    assert_regex(method_direct_return_ir, r"call %.*Triple @.*Triple\.shift\(ptr [^,]+, i32 4\)", label="method direct return ir")
+    assert_regex(method_direct_return_ir, r"^define %.*Triple @.*Triple\.shift\.__receiver_get\(ptr [^,]+, i32 [^)]+\)", label="method direct return ir")
+    assert_regex(method_direct_return_ir, r"call %.*Triple @.*Triple\.shift\.__receiver_get\(ptr [^,]+, i32 4\)", label="method direct return ir")
     assert_not_contains(method_direct_return_ir, "sret", label="method direct return ir")
 
     tuple_field_ir = _emit_ir(

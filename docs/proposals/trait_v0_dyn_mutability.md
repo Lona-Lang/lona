@@ -1,5 +1,8 @@
 # Trait v0 Dyn Mutability Plan
 
+> 历史执行计划。当前实现已经进一步加入 `var def` value receiver；现行行为见
+> `docs/reference/language/trait.md` 和 `docs/internals/compiler/trait_lowering.md`。
+
 ## Goal Description
 
 基于当前已经落地的 trait v0，实现下一版 `Trait dyn` 可写性扩展，使 trait 中的 `set def` 不再导致整个 trait 被排除在动态分派之外，而是改为：
@@ -280,7 +283,7 @@ Each task must include exactly one routing tag:
 - setter 是否可调用，优先根据擦除后 `data_ptr` 的可写性判断，而不是根据 `witness_ptr` 单独携带一份 mutability tag。
 - witness table 优先继续保持一份 `(Trait, Type)` 一张表。
 - getter/setter 的差异优先通过：
-  - method declaration 的 `receiverAccess`
+  - method declaration 的 `ReceiverMode`
   - 调用点的 dyn receiver constness
   - slot function type 的 receiver pointee constness
   来表达。

@@ -225,8 +225,10 @@ def function_vs_extension_dependency_text(use_extension: bool, delta: int) -> st
             "}\n"
         )
     return (
-        f"def i32.foo() i32 {{\n"
-        f"    ret self + {delta}\n"
+        "extend i32 {\n"
+        "    var def foo() i32 {\n"
+        f"        ret self + {delta}\n"
+        "    }\n"
         "}\n"
     )
 
@@ -236,6 +238,27 @@ def function_vs_extension_program_text(module_name: str, value: int) -> str:
         f"import {module_name}\n\n"
         "def main() i32 {\n"
         f"    ret {module_name}.foo({value})\n"
+        "}\n"
+    )
+
+
+def extension_receiver_mode_dependency_text(value_mode: bool, delta: int) -> str:
+    prefix = "var " if value_mode else ""
+    self_expr = "self" if value_mode else "*self"
+    return (
+        "extend i32 {\n"
+        f"    {prefix}def plus() i32 {{\n"
+        f"        ret {self_expr} + {delta}\n"
+        "    }\n"
+        "}\n"
+    )
+
+
+def extension_receiver_mode_program_text(module_name: str, value: int) -> str:
+    return (
+        f"import {module_name}\n\n"
+        "def main() i32 {\n"
+        f"    ret {value}.plus()\n"
         "}\n"
     )
 
@@ -399,6 +422,26 @@ def run_function_vs_extension_interface_hash_case(
         0,
         "unknown module member `dep.foo`",
     )
+
+
+def run_extension_receiver_mode_interface_hash_case(
+    rng: random.Random, runner: SessionRunner, root: Path
+) -> None:
+    dep_path = root / "dep.lo"
+    app_path = root / "app.lo"
+    delta = rng.randint(10, 99)
+    argument = rng.randint(1, 9)
+
+    write_file(dep_path, extension_receiver_mode_dependency_text(True, delta))
+    write_file(app_path, extension_receiver_mode_program_text("dep", argument))
+    first = runner.compile(app_path)
+    expect_compile_ok(first, compiled=2, reused=0)
+    expect(".__extend__.var.plus" in first["stdout"], "missing var extension symbol")
+
+    write_file(dep_path, extension_receiver_mode_dependency_text(False, delta))
+    second = runner.compile(app_path)
+    expect_compile_ok(second, compiled=2, reused=0)
+    expect(".__extend__.get.plus" in second["stdout"], "missing get extension symbol")
 
 
 def run_indexable_pointer_interface_hash_case(
@@ -935,6 +978,12 @@ def main() -> int:
                 "function-vs-extension-interface-hash-invalidation",
                 lambda: run_function_vs_extension_interface_hash_case(
                     rng, runner, root / "function_vs_extension_interface"
+                ),
+            )
+            suite.add(
+                "extension-receiver-mode-interface-hash-invalidation",
+                lambda: run_extension_receiver_mode_interface_hash_case(
+                    rng, runner, root / "extension_receiver_mode_interface"
                 ),
             )
             suite.add(

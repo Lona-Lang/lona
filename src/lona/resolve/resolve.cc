@@ -119,7 +119,8 @@ statementListBody(const AstNode *node) {
     }
     switch (node->kind()) {
         case AstKind::Program:
-            return statementListBody(static_cast<const AstProgram *>(node)->body);
+            return statementListBody(
+                static_cast<const AstProgram *>(node)->body);
         case AstKind::StatList:
             return static_cast<const AstStatList *>(node);
         default:
@@ -142,7 +143,8 @@ localTypeName(llvm::StringRef typeName) {
 }
 
 const AstStructDecl *
-findStructDeclInUnit(const CompilationUnit *searchUnit, llvm::StringRef localName) {
+findStructDeclInUnit(const CompilationUnit *searchUnit,
+                     llvm::StringRef localName) {
     if (!searchUnit) {
         return nullptr;
     }
@@ -155,8 +157,8 @@ findStructDeclInUnit(const CompilationUnit *searchUnit, llvm::StringRef localNam
             continue;
         }
         auto *structDecl = static_cast<AstStructDecl *>(stmt);
-        if (llvm::StringRef(structDecl->name.tochara(), structDecl->name.size()) ==
-            localName) {
+        if (llvm::StringRef(structDecl->name.tochara(),
+                            structDecl->name.size()) == localName) {
             return structDecl;
         }
     }
@@ -225,8 +227,7 @@ class FunctionResolver {
     const CompilationUnit *unit_;
     ResolvedModule &module_;
     ResolvedFunction &resolved_;
-    using LocalScope =
-        std::unordered_map<string, const ResolvedLocalBinding *>;
+    using LocalScope = std::unordered_map<string, const ResolvedLocalBinding *>;
     std::vector<LocalScope> localScopes_;
     struct GenericCapabilityInfo {
         string paramName;
@@ -326,10 +327,11 @@ class FunctionResolver {
         return found != context->fields.end() ? found->second : nullptr;
     }
 
-    const AstNode *genericTypeParamBoundSyntax(llvm::StringRef paramName) const {
+    const AstNode *genericTypeParamBoundSyntax(
+        llvm::StringRef paramName) const {
         auto lookupBound =
             [paramName](const std::vector<AstGenericParam *> *params)
-                -> const AstNode * {
+            -> const AstNode * {
             if (!params) {
                 return nullptr;
             }
@@ -353,7 +355,7 @@ class FunctionResolver {
     }
 
     const AstVarDecl *findStructFieldDecl(const AstStructDecl *structDecl,
-                                         llvm::StringRef fieldName) const {
+                                          llvm::StringRef fieldName) const {
         auto *body = statementListBody(structDecl ? structDecl->body : nullptr);
         if (!body) {
             return nullptr;
@@ -385,8 +387,8 @@ class FunctionResolver {
                 continue;
             }
             auto *funcDecl = static_cast<AstFuncDecl *>(stmt);
-            if (llvm::StringRef(funcDecl->name.tochara(), funcDecl->name.size()) ==
-                methodName) {
+            if (llvm::StringRef(funcDecl->name.tochara(),
+                                funcDecl->name.size()) == methodName) {
                 return funcDecl;
             }
         }
@@ -439,8 +441,7 @@ class FunctionResolver {
         return node;
     }
 
-    const TypeNode *peelPointerTypeNode(const TypeNode *node,
-                                        int depth) const {
+    const TypeNode *peelPointerTypeNode(const TypeNode *node, int depth) const {
         auto *current = node;
         for (int i = 0; current && i < depth; ++i) {
             current = pointeeTypeNode(current);
@@ -545,24 +546,27 @@ class FunctionResolver {
         if (!unit_ || !ownerTypeNode) {
             return noGenericCapability();
         }
-        if (auto *param = dynamic_cast<const FuncParamTypeNode *>(ownerTypeNode)) {
+        if (auto *param =
+                dynamic_cast<const FuncParamTypeNode *>(ownerTypeNode)) {
             return projectedFieldGenericInfo(param->type, fieldName);
         }
-        if (auto *qualified = dynamic_cast<const ConstTypeNode *>(ownerTypeNode)) {
+        if (auto *qualified =
+                dynamic_cast<const ConstTypeNode *>(ownerTypeNode)) {
             return projectedFieldGenericInfo(qualified->base, fieldName);
         }
 
         const BaseTypeNode *base = nullptr;
         const ModuleInterface::TypeDecl *typeDecl = nullptr;
         std::unordered_map<std::string, GenericCapabilityInfo> substs;
-        if (auto *applied = dynamic_cast<const AppliedTypeNode *>(ownerTypeNode)) {
+        if (auto *applied =
+                dynamic_cast<const AppliedTypeNode *>(ownerTypeNode)) {
             base = dynamic_cast<const BaseTypeNode *>(applied->base);
             typeDecl = resolveVisibleTypeDecl(base);
             if (!typeDecl) {
                 return noGenericCapability();
             }
-            const auto count = std::min(typeDecl->typeParams.size(),
-                                        applied->args.size());
+            const auto count =
+                std::min(typeDecl->typeParams.size(), applied->args.size());
             for (std::size_t i = 0; i < count; ++i) {
                 substs.emplace(toStdString(typeDecl->typeParams[i].localName),
                                classifyGenericTypeNode(applied->args[i]));
@@ -590,13 +594,16 @@ class FunctionResolver {
         if (!ownerTypeNode) {
             return nullptr;
         }
-        if (auto *param = dynamic_cast<const FuncParamTypeNode *>(ownerTypeNode)) {
+        if (auto *param =
+                dynamic_cast<const FuncParamTypeNode *>(ownerTypeNode)) {
             return methodOwnerTypeNode(param->type);
         }
-        if (auto *qualified = dynamic_cast<const ConstTypeNode *>(ownerTypeNode)) {
+        if (auto *qualified =
+                dynamic_cast<const ConstTypeNode *>(ownerTypeNode)) {
             return methodOwnerTypeNode(qualified->base);
         }
-        if (auto *pointer = dynamic_cast<const PointerTypeNode *>(ownerTypeNode)) {
+        if (auto *pointer =
+                dynamic_cast<const PointerTypeNode *>(ownerTypeNode)) {
             return stripDecoratedTypeNode(pointer->base);
         }
         if (auto *indexable =
@@ -619,7 +626,8 @@ class FunctionResolver {
         }
 
         const ModuleInterface::TypeDecl *typeDecl = nullptr;
-        if (auto *applied = dynamic_cast<const AppliedTypeNode *>(ownerTypeNode)) {
+        if (auto *applied =
+                dynamic_cast<const AppliedTypeNode *>(ownerTypeNode)) {
             auto *base = dynamic_cast<const BaseTypeNode *>(applied->base);
             typeDecl = resolveVisibleTypeDecl(base);
             if (!typeDecl) {
@@ -653,16 +661,19 @@ class FunctionResolver {
         if (!unit_ || !ownerTypeNode) {
             return nullptr;
         }
-        if (auto *param = dynamic_cast<const FuncParamTypeNode *>(ownerTypeNode)) {
+        if (auto *param =
+                dynamic_cast<const FuncParamTypeNode *>(ownerTypeNode)) {
             return projectedFieldTypeNode(param->type, fieldName);
         }
-        if (auto *qualified = dynamic_cast<const ConstTypeNode *>(ownerTypeNode)) {
+        if (auto *qualified =
+                dynamic_cast<const ConstTypeNode *>(ownerTypeNode)) {
             return projectedFieldTypeNode(qualified->base, fieldName);
         }
 
         const BaseTypeNode *base = nullptr;
         const ModuleInterface::TypeDecl *typeDecl = nullptr;
-        if (auto *applied = dynamic_cast<const AppliedTypeNode *>(ownerTypeNode)) {
+        if (auto *applied =
+                dynamic_cast<const AppliedTypeNode *>(ownerTypeNode)) {
             base = dynamic_cast<const BaseTypeNode *>(applied->base);
             typeDecl = resolveVisibleTypeDecl(base);
         } else if (auto *baseNode =
@@ -681,7 +692,8 @@ class FunctionResolver {
         return fieldDecl ? fieldDecl->typeNode : nullptr;
     }
 
-    GenericCapabilityInfo selfFieldGenericInfo(llvm::StringRef fieldName) const {
+    GenericCapabilityInfo selfFieldGenericInfo(
+        llvm::StringRef fieldName) const {
         if (!resolved_.isMethod()) {
             return noGenericCapability();
         }
@@ -781,7 +793,8 @@ class FunctionResolver {
         return node->value;
     }
 
-    std::vector<TypeNode *> *callExplicitTypeArgs(const AstFieldCall *node) const {
+    std::vector<TypeNode *> *callExplicitTypeArgs(
+        const AstFieldCall *node) const {
         if (!node) {
             return nullptr;
         }
@@ -791,7 +804,8 @@ class FunctionResolver {
         return nullptr;
     }
 
-    const ResolvedEntityRef *resolvedCallTarget(const AstFieldCall *node) const {
+    const ResolvedEntityRef *resolvedCallTarget(
+        const AstFieldCall *node) const {
         return resolvedExpr(callTargetNode(node));
     }
 
@@ -816,8 +830,8 @@ class FunctionResolver {
             return;
         }
         if (auto *param = dynamic_cast<const FuncParamTypeNode *>(pattern)) {
-            inferGenericCapabilitySubsts(param->type, actualTypeNode, actualInfo,
-                                         substs);
+            inferGenericCapabilitySubsts(param->type, actualTypeNode,
+                                         actualInfo, substs);
             return;
         }
         if (auto *qualified = dynamic_cast<const ConstTypeNode *>(pattern)) {
@@ -848,10 +862,10 @@ class FunctionResolver {
                     nextInfo = noGenericCapability();
                 }
             }
-            inferGenericCapabilitySubsts(pointer->base,
-                                         peelPointerTypeNode(actualTypeNode,
-                                                             pointer->dim),
-                                         nextInfo, substs);
+            inferGenericCapabilitySubsts(
+                pointer->base,
+                peelPointerTypeNode(actualTypeNode, pointer->dim), nextInfo,
+                substs);
             return;
         }
         if (auto *indexable =
@@ -870,19 +884,18 @@ class FunctionResolver {
             return;
         }
         if (auto *array = dynamic_cast<const ArrayTypeNode *>(pattern)) {
-            const auto *actualArray =
-                dynamic_cast<const ArrayTypeNode *>(stripDecoratedTypeNode(
-                    actualTypeNode));
+            const auto *actualArray = dynamic_cast<const ArrayTypeNode *>(
+                stripDecoratedTypeNode(actualTypeNode));
             inferGenericCapabilitySubsts(
                 array->base, actualArray ? actualArray->base : nullptr,
                 noGenericCapability(), substs);
             return;
         }
         if (auto *tuple = dynamic_cast<const TupleTypeNode *>(pattern)) {
-            const auto *actualTuple =
-                dynamic_cast<const TupleTypeNode *>(stripDecoratedTypeNode(
-                    actualTypeNode));
-            if (!actualTuple || actualTuple->items.size() != tuple->items.size()) {
+            const auto *actualTuple = dynamic_cast<const TupleTypeNode *>(
+                stripDecoratedTypeNode(actualTypeNode));
+            if (!actualTuple ||
+                actualTuple->items.size() != tuple->items.size()) {
                 return;
             }
             for (std::size_t i = 0; i < tuple->items.size(); ++i) {
@@ -893,9 +906,8 @@ class FunctionResolver {
             return;
         }
         if (auto *func = dynamic_cast<const FuncPtrTypeNode *>(pattern)) {
-            const auto *actualFunc =
-                dynamic_cast<const FuncPtrTypeNode *>(stripDecoratedTypeNode(
-                    actualTypeNode));
+            const auto *actualFunc = dynamic_cast<const FuncPtrTypeNode *>(
+                stripDecoratedTypeNode(actualTypeNode));
             if (!actualFunc || actualFunc->args.size() != func->args.size()) {
                 return;
             }
@@ -908,16 +920,16 @@ class FunctionResolver {
             return;
         }
         if (auto *applied = dynamic_cast<const AppliedTypeNode *>(pattern)) {
-            const auto *actualApplied =
-                dynamic_cast<const AppliedTypeNode *>(stripDecoratedTypeNode(
-                    actualTypeNode));
+            const auto *actualApplied = dynamic_cast<const AppliedTypeNode *>(
+                stripDecoratedTypeNode(actualTypeNode));
             auto *patternBase =
                 dynamic_cast<const BaseTypeNode *>(applied->base);
-            auto *actualBase = actualApplied
-                                   ? dynamic_cast<const BaseTypeNode *>(
-                                         actualApplied->base)
-                                   : nullptr;
-            if (!actualApplied || !sameVisibleTypeBase(patternBase, actualBase) ||
+            auto *actualBase =
+                actualApplied
+                    ? dynamic_cast<const BaseTypeNode *>(actualApplied->base)
+                    : nullptr;
+            if (!actualApplied ||
+                !sameVisibleTypeBase(patternBase, actualBase) ||
                 actualApplied->args.size() != applied->args.size()) {
                 return;
             }
@@ -963,7 +975,8 @@ class FunctionResolver {
                                              substs);
             }
 
-            return classifyGenericTypeNode(functionDecl->returnTypeNode, substs);
+            return classifyGenericTypeNode(functionDecl->returnTypeNode,
+                                           substs);
         }
 
         auto *callTarget = callTargetNode(node);
@@ -978,14 +991,12 @@ class FunctionResolver {
             projectionOwnerTypeNode(callee->parent), fieldName, &substs);
         if (!methodDecl || !methodDecl->retType) {
             auto *calleeTypeNode = exprVisibleTypeNode(callTargetNode(node));
-            if (auto *func =
-                    dynamic_cast<const FuncPtrTypeNode *>(
-                        stripDecoratedTypeNode(calleeTypeNode))) {
+            if (auto *func = dynamic_cast<const FuncPtrTypeNode *>(
+                    stripDecoratedTypeNode(calleeTypeNode))) {
                 return classifyGenericTypeNode(func->ret);
             }
-            if (auto *array =
-                    dynamic_cast<const ArrayTypeNode *>(
-                        stripDecoratedTypeNode(calleeTypeNode))) {
+            if (auto *array = dynamic_cast<const ArrayTypeNode *>(
+                    stripDecoratedTypeNode(calleeTypeNode))) {
                 return classifyGenericTypeNode(array->base);
             }
             if (auto *indexable =
@@ -998,8 +1009,8 @@ class FunctionResolver {
         auto *explicitTypeArgs = callExplicitTypeArgs(node);
         if (methodDecl->typeParams) {
             if (explicitTypeArgs) {
-                const auto count =
-                    std::min(explicitTypeArgs->size(), methodDecl->typeParams->size());
+                const auto count = std::min(explicitTypeArgs->size(),
+                                            methodDecl->typeParams->size());
                 for (std::size_t i = 0; i < count; ++i) {
                     auto *param = methodDecl->typeParams->at(i);
                     if (!param) {
@@ -1012,15 +1023,14 @@ class FunctionResolver {
             }
             const auto argCount = node->args ? node->args->size() : 0;
             auto *args = node->args;
-            const auto paramCount =
-                std::min(argCount, methodDecl->args ? methodDecl->args->size() : 0);
+            const auto paramCount = std::min(
+                argCount, methodDecl->args ? methodDecl->args->size() : 0);
             for (std::size_t i = 0; i < paramCount; ++i) {
                 auto *argExpr = callArgValue(args->at(i));
                 auto *argNode = methodDecl->args->at(i);
-                auto *argDecl =
-                    argNode && argNode->kind() == AstKind::VarDecl
-                        ? static_cast<AstVarDecl *>(argNode)
-                        : nullptr;
+                auto *argDecl = argNode && argNode->kind() == AstKind::VarDecl
+                                    ? static_cast<AstVarDecl *>(argNode)
+                                    : nullptr;
                 inferGenericCapabilitySubsts(
                     argDecl ? argDecl->typeNode : nullptr,
                     exprVisibleTypeNode(argExpr), inferGenericExprInfo(argExpr),
@@ -1039,8 +1049,7 @@ class FunctionResolver {
                 auto *field = static_cast<const AstField *>(node);
                 auto *binding = resolved_.field(field);
                 if (!binding ||
-                    binding->kind() !=
-                        ResolvedEntityRef::Kind::LocalBinding) {
+                    binding->kind() != ResolvedEntityRef::Kind::LocalBinding) {
                     return noGenericCapability();
                 }
                 return bindingGenericInfo(binding->localBinding());
@@ -1117,9 +1126,11 @@ class FunctionResolver {
 
     std::string genericCapabilityHint(const GenericCapabilityInfo &info) const {
         if (auto bound = genericTypeParamBoundName(info); !bound.empty()) {
-            return "Bounded generic parameters only allow methods provided by bound `" +
+            return "Bounded generic parameters only allow methods provided by "
+                   "bound `" +
                    bound +
-                   "`, such as `value.method()`. Field access and operators on `T` stay unavailable even with a bound.";
+                   "`, such as `value.method()`. Field access and operators on "
+                   "`T` stay unavailable even with a bound.";
         }
         return "Unconstrained generic parameters only allow type-level uses "
                "such as `sizeof[T]()`, `T*`, `T const*`, or `Box[T]`. "
@@ -1134,10 +1145,9 @@ class FunctionResolver {
             return nullptr;
         }
 
-        auto lookupLocalTrait =
-            [](const ModuleInterface *interface,
-               const std::string &localName)
-                -> const ModuleInterface::TraitDecl * {
+        auto lookupLocalTrait = [](const ModuleInterface *interface,
+                                   const std::string &localName)
+            -> const ModuleInterface::TraitDecl * {
             if (!interface) {
                 return nullptr;
             }
@@ -1178,7 +1188,8 @@ class FunctionResolver {
                 const auto &imported = entry.second;
                 if (!imported.interface ||
                     moduleName !=
-                        toStdString(imported.interface->exportNamespacePrefix())) {
+                        toStdString(
+                            imported.interface->exportNamespacePrefix())) {
                     continue;
                 }
                 if (auto *traitDecl =
@@ -1278,7 +1289,8 @@ class FunctionResolver {
         if (bound.empty()) {
             return nullptr;
         }
-        return resolveVisibleTraitDecl(bound, resolved_.genericOwnerInterface());
+        return resolveVisibleTraitDecl(bound,
+                                       resolved_.genericOwnerInterface());
     }
 
     [[noreturn]] void errorUnconstrainedGenericMemberUse(
@@ -1292,8 +1304,9 @@ class FunctionResolver {
                   genericCapabilityHint(info));
         }
         error(loc,
-              "unconstrained generic parameter `" + toStdString(info.paramName) +
-                  "` does not provide member `" + memberName.str() + "`",
+              "unconstrained generic parameter `" +
+                  toStdString(info.paramName) + "` does not provide member `" +
+                  memberName.str() + "`",
               genericCapabilityHint(info));
     }
 
@@ -1359,7 +1372,8 @@ class FunctionResolver {
                   genericCapabilityHint(info));
         }
         error(loc,
-              "unconstrained generic parameter `" + toStdString(info.paramName) +
+              "unconstrained generic parameter `" +
+                  toStdString(info.paramName) +
                   "` does not support operator `" + describeOperator(op) + "`",
               genericCapabilityHint(info));
     }
@@ -1453,8 +1467,7 @@ class FunctionResolver {
                       "generic type argument count mismatch for `" +
                           toStdString(typeDecl->exportedName) + "`: expected " +
                           std::to_string(typeDecl->typeParams.size()) +
-                          ", got " +
-                          std::to_string(applied->args.size()),
+                          ", got " + std::to_string(applied->args.size()),
                       "Match the number of `[` `]` type arguments to the "
                       "generic type parameter list.");
             }
@@ -1556,8 +1569,27 @@ class FunctionResolver {
         return node->value;
     }
 
-    const ResolvedEntityRef *resolvedFuncRefTarget(const AstFuncRef *node) const {
+    const ResolvedEntityRef *resolvedFuncRefTarget(
+        const AstFuncRef *node) const {
         return resolvedExpr(funcRefTargetNode(node));
+    }
+
+    bool isTypeQualifiedMethodRef(const AstFuncRef *node) const {
+        auto *target =
+            dynamic_cast<const AstDotLike *>(funcRefTargetNode(node));
+        if (!target) {
+            return false;
+        }
+        if (auto *binding = resolvedExpr(target->parent)) {
+            return binding->kind() == ResolvedEntityRef::Kind::Type;
+        }
+        auto *appliedOwner = dynamic_cast<const AstTypeApply *>(target->parent);
+        if (!appliedOwner) {
+            return false;
+        }
+        auto *binding = resolvedExpr(appliedOwner->value);
+        return binding &&
+               binding->kind() == ResolvedEntityRef::Kind::GenericType;
     }
 
     std::string describeFuncRefTarget(const AstFuncRef *node) const {
@@ -1599,8 +1631,8 @@ class FunctionResolver {
                     ? moduleNamespace->unit->findTopLevelInline(memberName)
                     : nullptr) {
             resolved_.bindDotLike(
-                node, ResolvedEntityRef::inlineGlobal(
-                          memberName, inlineDecl, moduleNamespace->unit));
+                node, ResolvedEntityRef::inlineGlobal(memberName, inlineDecl,
+                                                      moduleNamespace->unit));
             return;
         }
         if (lookup.isGlobal()) {
@@ -1622,10 +1654,10 @@ class FunctionResolver {
         }
         if (lookup.isType()) {
             if (lookup.typeDecl && lookup.typeDecl->isGeneric()) {
-                resolved_.bindDotLike(
-                    node, ResolvedEntityRef::genericType(lookup.resolvedName,
-                                                         lookup.typeDecl,
-                                                         moduleNamespace->interface));
+                resolved_.bindDotLike(node,
+                                      ResolvedEntityRef::genericType(
+                                          lookup.resolvedName, lookup.typeDecl,
+                                          moduleNamespace->interface));
             } else {
                 resolved_.bindDotLike(
                     node, ResolvedEntityRef::type(lookup.resolvedName));
@@ -1662,8 +1694,8 @@ class FunctionResolver {
                     varDef->getTypeNode()) {
                     validateVisibleType(
                         varDef->getTypeNode(), varDef->getTypeNode()->loc,
-                        "local variable `" +
-                            toStdString(varDef->getName()) + "`");
+                        "local variable `" + toStdString(varDef->getName()) +
+                            "`");
                 }
                 if (varDef->withInitVal()) {
                     resolveExpr(varDef->getInitVal());
@@ -1679,10 +1711,9 @@ class FunctionResolver {
                     "Rename one of the variables or reuse the existing "
                     "binding.");
                 resolved_.bindVariable(varDef, binding);
-                rememberBindingGenericInfo(binding, varDef->getTypeNode(),
-                                           varDef->withInitVal()
-                                               ? varDef->getInitVal()
-                                               : nullptr);
+                rememberBindingGenericInfo(
+                    binding, varDef->getTypeNode(),
+                    varDef->withInitVal() ? varDef->getInitVal() : nullptr);
                 return;
             }
             case AstKind::Ret: {
@@ -1742,34 +1773,33 @@ class FunctionResolver {
                 if (unit_) {
                     auto lookup =
                         unit_->lookupTopLevelName(toStdString(field->name));
-                    if (auto *inlineDecl =
-                            unit_->findTopLevelInline(
-                                toStdString(field->name))) {
+                    if (auto *inlineDecl = unit_->findTopLevelInline(
+                            toStdString(field->name))) {
                         resolved_.bindField(
-                            field, ResolvedEntityRef::inlineGlobal(
-                                       toStdString(field->name), inlineDecl,
-                                       unit_));
+                            field,
+                            ResolvedEntityRef::inlineGlobal(
+                                toStdString(field->name), inlineDecl, unit_));
                         return;
                     }
                     if (lookup.isFunction()) {
                         if (lookup.functionDecl &&
                             lookup.functionDecl->isGeneric()) {
                             resolved_.bindField(
-                                field, ResolvedEntityRef::genericFunction(
-                                           lookup.resolvedName,
-                                           lookup.functionDecl,
-                                           unit_->interface()));
+                                field,
+                                ResolvedEntityRef::genericFunction(
+                                    lookup.resolvedName, lookup.functionDecl,
+                                    unit_->interface()));
                         } else {
-                            resolved_.bindField(
-                                field, ResolvedEntityRef::globalValue(
-                                           lookup.resolvedName));
+                            resolved_.bindField(field,
+                                                ResolvedEntityRef::globalValue(
+                                                    lookup.resolvedName));
                         }
                         return;
                     }
                     if (lookup.isGlobal()) {
-                        resolved_.bindField(
-                            field, ResolvedEntityRef::globalValue(
-                                       lookup.resolvedName));
+                        resolved_.bindField(field,
+                                            ResolvedEntityRef::globalValue(
+                                                lookup.resolvedName));
                         return;
                     }
                     if (lookup.isType()) {
@@ -1786,15 +1816,13 @@ class FunctionResolver {
                         return;
                     }
                     if (lookup.isTrait()) {
-                        resolved_.bindField(
-                            field,
-                            ResolvedEntityRef::trait(lookup.resolvedName));
+                        resolved_.bindField(field, ResolvedEntityRef::trait(
+                                                       lookup.resolvedName));
                         return;
                     }
                     if (lookup.isModule()) {
-                        resolved_.bindField(
-                            field,
-                            ResolvedEntityRef::module(lookup.resolvedName));
+                        resolved_.bindField(field, ResolvedEntityRef::module(
+                                                       lookup.resolvedName));
                         return;
                     }
                 }
@@ -1825,8 +1853,8 @@ class FunctionResolver {
                                   toStdString(field->name) + ".xxx`.");
                     }
                     error(field->loc,
-                          "undefined identifier `" +
-                              toStdString(field->name) + "`",
+                          "undefined identifier `" + toStdString(field->name) +
+                              "`",
                           "Declare it with `var` before using it, or check the "
                           "spelling.");
                 }
@@ -1857,12 +1885,17 @@ class FunctionResolver {
                         return;
                     }
                 }
+                if (isTypeQualifiedMethodRef(funcRef)) {
+                    resolved_.bindFunctionRef(
+                        funcRef, ResolvedEntityRef::methodFunction());
+                    return;
+                }
                 error(funcRef->loc,
                       "function reference target must name a top-level "
-                      "function: `" +
+                      "function or type-qualified method: `" +
                           describeFuncRefTarget(funcRef) + "`",
-                      "Use `@name`, `@module.name`, or `@name[T]` with a "
-                      "visible top-level function.");
+                      "Use `@name`, `@module.name`, `@name[T]`, or "
+                      "`@Type.method` with a visible function.");
                 return;
             }
             case AstKind::Assign: {
@@ -1990,8 +2023,7 @@ class FunctionResolver {
                     } else {
                         resolveExpr(callValue);
                     }
-                } else if (callValue &&
-                           callValue->kind() == AstKind::DotLike) {
+                } else if (callValue && callValue->kind() == AstKind::DotLike) {
                     resolveCalledSelector(
                         static_cast<const AstDotLike *>(callValue));
                 } else {
@@ -2015,10 +2047,10 @@ class FunctionResolver {
     }
 
 public:
-    FunctionResolver(GlobalScope *global, TypeTable *typeMgr,
-                     const CompilationUnit *unit, ResolvedModule &module,
-                     ResolvedFunction &resolved,
-                     const StructResolutionContext *methodStructContext = nullptr)
+    FunctionResolver(
+        GlobalScope *global, TypeTable *typeMgr, const CompilationUnit *unit,
+        ResolvedModule &module, ResolvedFunction &resolved,
+        const StructResolutionContext *methodStructContext = nullptr)
         : global_(global),
           typeMgr_(typeMgr),
           unit_(unit),
@@ -2027,9 +2059,8 @@ public:
           methodStructContext_(methodStructContext) {
         if (!methodStructContext_ && resolved_.isMethod() && unit_) {
             if (auto *structDecl = findStructDeclInUnit(
-                    unit_,
-                    localTypeName(
-                        toStringRef(resolved_.methodParentTypeName())))) {
+                    unit_, localTypeName(toStringRef(
+                               resolved_.methodParentTypeName())))) {
                 ownedMethodStructContext_ =
                     buildStructResolutionContext(structDecl);
                 methodStructContext_ = &ownedMethodStructContext_;
@@ -2060,7 +2091,8 @@ public:
                 "duplicate function parameter `" +
                     toStdString(binding->name()) + "`",
                 "Rename one of the parameters so each binding is unique.");
-            rememberBindingGenericInfo(binding, bindingDeclaredTypeNode(binding));
+            rememberBindingGenericInfo(binding,
+                                       bindingDeclaredTypeNode(binding));
         }
 
         if (auto *body = statementListBody(resolved_.body())) {
@@ -2098,16 +2130,17 @@ class ModuleResolver {
         bool topLevelEntry, bool languageEntry, bool guaranteedReturn,
         bool templateValidationOnly = false,
         std::vector<string> genericTypeParams = {},
-        std::unordered_map<std::string, std::string> genericTypeParamBounds = {},
+        std::unordered_map<std::string, std::string> genericTypeParamBounds =
+            {},
         const ModuleInterface *genericOwnerInterface = nullptr,
-        std::unordered_map<std::string, TypeClass *> concreteGenericTypes = {}) {
+        std::unordered_map<std::string, TypeClass *> concreteGenericTypes =
+            {}) {
         auto *resolved = module_->createFunction(
             decl, body, ownsBody, std::move(functionName),
             std::move(methodParentTypeName), loc, topLevelEntry, languageEntry,
             guaranteedReturn, templateValidationOnly,
             std::move(genericTypeParams), std::move(genericTypeParamBounds),
-            genericOwnerInterface,
-            std::move(concreteGenericTypes));
+            genericOwnerInterface, std::move(concreteGenericTypes));
         if (resolved->isMethod()) {
             resolved->setSelfBinding(module_->createLocalBinding(
                 ResolvedLocalBinding::Kind::Self, BindingKind::Value, "self",
@@ -2161,14 +2194,16 @@ class ModuleResolver {
         }
 
         auto genericTypeParamBounds = std::move(scopedTypeParamBounds);
-        auto ownGenericTypeParamBounds = collectGenericParamBounds(node->typeParams);
+        auto ownGenericTypeParamBounds =
+            collectGenericParamBounds(node->typeParams);
         genericTypeParamBounds.insert(ownGenericTypeParamBounds.begin(),
                                       ownGenericTypeParamBounds.end());
         auto *resolved = createResolvedFunction(
             node, node->body, false,
-            methodParent ? std::move(resolvedFunctionName)
-                         : (templateValidationOnly ? string()
-                                                   : std::move(resolvedFunctionName)),
+            methodParent
+                ? std::move(resolvedFunctionName)
+                : (templateValidationOnly ? string()
+                                          : std::move(resolvedFunctionName)),
             !methodParentTypeName.empty()
                 ? std::move(methodParentTypeName)
                 : (methodParent ? string(methodParent->full_name) : string()),
@@ -2180,8 +2215,9 @@ class ModuleResolver {
             .resolve();
     }
 
-    void resolveExtensionFunction(AstFuncDecl *node) {
-        if (!node) {
+    void resolveExtensionFunction(AstExtendDecl *extendDecl,
+                                  AstFuncDecl *node) {
+        if (!extendDecl || !node) {
             return;
         }
         auto *extensionDecl = findLocalExtensionDecl(node);
@@ -2208,15 +2244,34 @@ class ModuleResolver {
             }
         }
 
-        auto genericTypeParamBounds = collectGenericParamBounds(node->typeParams);
+        auto genericTypeParamBounds =
+            collectGenericParamBounds(node->typeParams);
         auto *resolved = createResolvedFunction(
             node, node->body, false,
-            templateValidationOnly ? string() : toStdString(extensionDecl->symbolName),
+            templateValidationOnly ? string()
+                                   : toStdString(extensionDecl->symbolName),
             string(), node->loc, false, false,
             node->body && node->body->hasTerminator(), templateValidationOnly,
             std::move(scopedTypeParams), std::move(genericTypeParamBounds));
+        resolved->setExtensionTargetTypeName(extensionDecl->targetTypeSpelling);
+        resolved->setSelfBinding(module_->createLocalBinding(
+            ResolvedLocalBinding::Kind::Self, BindingKind::Value, "self", node,
+            node->loc));
         FunctionResolver(global_, typeMgr_, unit_, *module_, *resolved)
             .resolve();
+    }
+
+    void resolveExtend(AstExtendDecl *node) {
+        auto *body =
+            node && node->body ? node->body->as<AstStatList>() : nullptr;
+        if (!body) {
+            return;
+        }
+        for (auto *stmt : body->getBody()) {
+            if (auto *method = stmt ? stmt->as<AstFuncDecl>() : nullptr) {
+                resolveExtensionFunction(node, method);
+            }
+        }
     }
 
     void resolveStruct(AstStructDecl *node) {
@@ -2246,7 +2301,8 @@ class ModuleResolver {
         }
         auto structContext = buildStructResolutionContext(node);
         auto scopedTypeParams = collectGenericParamNames(node->typeParams);
-        auto scopedTypeParamBounds = collectGenericParamBounds(node->typeParams);
+        auto scopedTypeParamBounds =
+            collectGenericParamBounds(node->typeParams);
         for (auto *stmt : body->getBody()) {
             if (!stmt) {
                 continue;
@@ -2275,8 +2331,8 @@ class ModuleResolver {
             switch (node->trait->kind()) {
                 case AstKind::Field: {
                     auto *traitField = static_cast<AstField *>(node->trait);
-                    auto lookup =
-                        unit_->lookupTopLevelName(toStdString(traitField->name));
+                    auto lookup = unit_->lookupTopLevelName(
+                        toStdString(traitField->name));
                     if (lookup.isTrait()) {
                         resolvedTraitName = lookup.resolvedName;
                     }
@@ -2289,9 +2345,10 @@ class ModuleResolver {
                         break;
                     }
                     auto *moduleField = static_cast<AstField *>(moduleExpr);
-                    auto moduleLookup =
-                        unit_->lookupTopLevelName(toStdString(moduleField->name));
-                    if (moduleLookup.isModule() && moduleLookup.importedModule) {
+                    auto moduleLookup = unit_->lookupTopLevelName(
+                        toStdString(moduleField->name));
+                    if (moduleLookup.isModule() &&
+                        moduleLookup.importedModule) {
                         auto traitLookup = unit_->lookupTopLevelName(
                             *moduleLookup.importedModule,
                             toStdString(traitDot->field.text));
@@ -2350,12 +2407,11 @@ class ModuleResolver {
                 case AstKind::TraitImplDecl:
                     resolveTraitImpl(static_cast<AstTraitImplDecl *>(stmt));
                     continue;
+                case AstKind::ExtendDecl:
+                    resolveExtend(static_cast<AstExtendDecl *>(stmt));
+                    continue;
                 case AstKind::FuncDecl:
-                    if (static_cast<AstFuncDecl *>(stmt)->hasExtensionReceiver()) {
-                        resolveExtensionFunction(static_cast<AstFuncDecl *>(stmt));
-                    } else {
-                        resolveFunction(static_cast<AstFuncDecl *>(stmt));
-                    }
+                    resolveFunction(static_cast<AstFuncDecl *>(stmt));
                     continue;
                 default:
                     break;
@@ -2373,8 +2429,7 @@ class ModuleResolver {
         const bool execBodyHasTerminator = execBody->hasTerminator();
         auto *resolved = createResolvedFunction(
             nullptr, execBody.release(), true, std::string(), std::string(),
-            execBodyLoc,
-            true, rootModule_, execBodyHasTerminator);
+            execBodyLoc, true, rootModule_, execBodyHasTerminator);
         FunctionResolver(global_, typeMgr_, unit_, *module_, *resolved)
             .resolve();
     }
@@ -2429,25 +2484,19 @@ ResolvedModule::createLocalBinding(ResolvedLocalBinding::Kind kind,
 }
 
 ResolvedFunction *
-    ResolvedModule::createFunction(const AstFuncDecl *decl, const AstNode *body,
-                                   bool ownsBody, string functionName,
-                                   string methodParentTypeName,
-                                   const location &loc, bool topLevelEntry,
-                                   bool languageEntry, bool guaranteedReturn,
-                                   bool templateValidationOnly,
-                                   std::vector<string> genericTypeParams,
-                                   std::unordered_map<std::string, std::string>
-                                       genericTypeParamBounds,
-                                   const ModuleInterface *genericOwnerInterface,
-                                   std::unordered_map<std::string, TypeClass *>
-                                       concreteGenericTypes) {
+ResolvedModule::createFunction(
+    const AstFuncDecl *decl, const AstNode *body, bool ownsBody,
+    string functionName, string methodParentTypeName, const location &loc,
+    bool topLevelEntry, bool languageEntry, bool guaranteedReturn,
+    bool templateValidationOnly, std::vector<string> genericTypeParams,
+    std::unordered_map<std::string, std::string> genericTypeParamBounds,
+    const ModuleInterface *genericOwnerInterface,
+    std::unordered_map<std::string, TypeClass *> concreteGenericTypes) {
     functions_.push_back(std::make_unique<ResolvedFunction>(
         decl, body, ownsBody, std::move(functionName),
-        std::move(methodParentTypeName),
-        loc, topLevelEntry, languageEntry, guaranteedReturn,
-        templateValidationOnly, std::move(genericTypeParams),
-        std::move(genericTypeParamBounds),
-        genericOwnerInterface,
+        std::move(methodParentTypeName), loc, topLevelEntry, languageEntry,
+        guaranteedReturn, templateValidationOnly, std::move(genericTypeParams),
+        std::move(genericTypeParamBounds), genericOwnerInterface,
         std::move(concreteGenericTypes)));
     return functions_.back().get();
 }
@@ -2479,8 +2528,7 @@ resolveModule(GlobalScope *global, AstNode *root, const CompilationUnit *unit,
 std::unique_ptr<ResolvedModule>
 resolveGenericFunctionInstance(
     GlobalScope *global, const CompilationUnit *unit, const AstFuncDecl *decl,
-    string resolvedFunctionName,
-    const ModuleInterface *genericOwnerInterface,
+    string resolvedFunctionName, const ModuleInterface *genericOwnerInterface,
     std::unordered_map<std::string, TypeClass *> concreteGenericTypes) {
     if (!global || !decl) {
         return nullptr;
@@ -2508,11 +2556,9 @@ resolveGenericFunctionInstance(
     auto module = std::make_unique<ResolvedModule>();
     auto *resolved = module->createFunction(
         decl, decl->body, false, std::move(resolvedFunctionName), string(),
-        decl->loc,
-        false, false, decl->body && decl->body->hasTerminator(), false,
-        std::move(genericTypeParams), std::move(genericTypeParamBounds),
-        genericOwnerInterface,
-        std::move(concreteGenericTypes));
+        decl->loc, false, false, decl->body && decl->body->hasTerminator(),
+        false, std::move(genericTypeParams), std::move(genericTypeParamBounds),
+        genericOwnerInterface, std::move(concreteGenericTypes));
 
     if (decl->args) {
         for (auto *arg : *decl->args) {
@@ -2551,8 +2597,7 @@ resolveGenericMethodInstance(
         std::move(methodParentTypeName), decl->loc, false, false,
         decl->body && decl->body->hasTerminator(), false,
         std::move(genericTypeParams), std::move(genericTypeParamBounds),
-        genericOwnerInterface,
-        std::move(concreteGenericTypes));
+        genericOwnerInterface, std::move(concreteGenericTypes));
 
     auto *declStructType =
         typeMgr->getType(resolved->methodParentTypeName())->as<StructType>();

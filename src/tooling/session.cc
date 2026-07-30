@@ -1,12 +1,13 @@
 #include "session.hh"
-#include "lona/ast/type_node_tools.hh"
 #include "lona/ast/type_node_string.hh"
+#include "lona/ast/type_node_tools.hh"
+#include "lona/declare/support.hh"
 #include "lona/pass/compile_pipeline.hh"
 #include "lona/resolve/resolve.hh"
-#include "lona/sema/initializer.hh"
-#include "lona/sema/hir.hh"
-#include "lona/visitor.hh"
 #include "lona/scan/driver.hh"
+#include "lona/sema/hir.hh"
+#include "lona/sema/initializer.hh"
+#include "lona/visitor.hh"
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
@@ -102,8 +103,8 @@ lowerCopy(std::string_view text) {
     std::string lowered;
     lowered.reserve(text.size());
     for (char ch : text) {
-        lowered.push_back(static_cast<char>(
-            std::tolower(static_cast<unsigned char>(ch))));
+        lowered.push_back(
+            static_cast<char>(std::tolower(static_cast<unsigned char>(ch))));
     }
     return lowered;
 }
@@ -780,8 +781,8 @@ findFunctionContextAtLine(const AstNode *node, int line,
             return;
         }
         auto ownerLabel = toStdString(traitDecl->name);
-        findFunctionContextAtLine(traitDecl->body, line, ownerLabel,
-                                  ownerLabel, result);
+        findFunctionContextAtLine(traitDecl->body, line, ownerLabel, ownerLabel,
+                                  result);
         return;
     }
 
@@ -802,16 +803,23 @@ findFunctionContextAtLine(const AstNode *node, int line,
         }
         result.decl = funcDecl;
         result.kind = methodOwnerLabel.empty() ? "func" : "method";
-        result.qualifiedName = methodOwnerLabel.empty()
-                                   ? toStdString(funcDecl->name)
-                                   : methodOwnerLabel + "." +
-                                         toStdString(funcDecl->name);
+        result.qualifiedName =
+            methodOwnerLabel.empty()
+                ? toStdString(funcDecl->name)
+                : methodOwnerLabel + "." + toStdString(funcDecl->name);
         if (!methodOwnerLabel.empty()) {
             result.selfDetail = selfTypeSpelling;
             if (!result.selfDetail.empty()) {
-                result.selfDetail +=
-                    funcDecl->receiverAccess == AccessKind::GetSet ? "*"
-                                                                   : " const*";
+                switch (funcDecl->receiverMode) {
+                    case ReceiverMode::BorrowedReadWrite:
+                        result.selfDetail += "*";
+                        break;
+                    case ReceiverMode::BorrowedReadOnly:
+                        result.selfDetail += " const*";
+                        break;
+                    case ReceiverMode::Value:
+                        break;
+                }
             }
         } else {
             result.selfDetail.clear();
@@ -879,8 +887,7 @@ collectLocalsInBlock(const AstStatList *list, int line, int scopeDepth,
 
         if (auto *varDef = dynamic_cast<const AstVarDef *>(stmt)) {
             locals.push_back(LocalSymbolRecord{
-                "local",
-                toStdString(varDef->getName()),
+                "local", toStdString(varDef->getName()),
                 describeVarDefDetail(varDef),
                 describeDeclaredType(varDef->getTypeNode()),
                 makeSourceLocation(varDef->loc, fallbackPath), scopeDepth});
@@ -956,8 +963,8 @@ collectLocalsInNode(const AstNode *node, int line, int scopeDepth,
         if (ifNode->els &&
             branchContainsLine(ifNode->els, line,
                                elseBegin > 0 ? elseBegin + 1 : begin)) {
-            collectLocalsInNode(ifNode->els, line, scopeDepth + 1,
-                                fallbackPath, locals);
+            collectLocalsInNode(ifNode->els, line, scopeDepth + 1, fallbackPath,
+                                locals);
         }
         return;
     }
@@ -1140,7 +1147,8 @@ splitAppliedTypeSpelling(std::string_view spelling, std::string &baseName,
     }
 
     baseName = trimCopy(cleaned.substr(0, open));
-    args = splitTopLevelTypeArguments(cleaned.substr(open + 1, close - open - 1));
+    args =
+        splitTopLevelTypeArguments(cleaned.substr(open + 1, close - open - 1));
     return !baseName.empty();
 }
 
@@ -1149,9 +1157,9 @@ makeTemplateTypeInfo(TypeClass *typeRef, std::string spelling = {},
                      const CompilationUnit *lookupUnit = nullptr) {
     TemplateTypeInfo info;
     info.typeRef = typeRef;
-    info.spelling =
-        spelling.empty() && typeRef != nullptr ? describeResolvedType(typeRef)
-                                               : std::move(spelling);
+    info.spelling = spelling.empty() && typeRef != nullptr
+                        ? describeResolvedType(typeRef)
+                        : std::move(spelling);
     info.lookupUnit = lookupUnit;
     return info;
 }
@@ -1162,7 +1170,8 @@ hasTemplateTypeInfo(const TemplateTypeInfo &info) {
 }
 
 const AstVarDecl *
-findStructFieldDecl(const AstStructDecl *structDecl, std::string_view fieldName) {
+findStructFieldDecl(const AstStructDecl *structDecl,
+                    std::string_view fieldName) {
     if (!structDecl) {
         return nullptr;
     }
@@ -1175,8 +1184,8 @@ findStructFieldDecl(const AstStructDecl *structDecl, std::string_view fieldName)
         if (!fieldDecl) {
             continue;
         }
-        if (std::string_view(fieldDecl->field.tochara(), fieldDecl->field.size()) ==
-            fieldName) {
+        if (std::string_view(fieldDecl->field.tochara(),
+                             fieldDecl->field.size()) == fieldName) {
             return fieldDecl;
         }
     }
@@ -1198,8 +1207,8 @@ findStructMethodDecl(const AstStructDecl *structDecl,
         if (!methodDecl) {
             continue;
         }
-        if (std::string_view(methodDecl->name.tochara(), methodDecl->name.size()) ==
-            methodName) {
+        if (std::string_view(methodDecl->name.tochara(),
+                             methodDecl->name.size()) == methodName) {
             return methodDecl;
         }
     }
@@ -1207,11 +1216,11 @@ findStructMethodDecl(const AstStructDecl *structDecl,
 }
 
 bool
-lookupDeclaredTypeForTemplateSpelling(const CompilationUnit &lookupUnit,
-                                      std::string_view spelling,
-                                      const CompilationUnit *&ownerUnit,
-                                      const ModuleInterface::TypeDecl *&typeDecl,
-                                      TemplateGenericArgs &genericArgs) {
+lookupDeclaredTypeForTemplateSpelling(
+    const CompilationUnit &lookupUnit, std::string_view spelling,
+    const CompilationUnit *&ownerUnit,
+    const ModuleInterface::TypeDecl *&typeDecl,
+    TemplateGenericArgs &genericArgs) {
     ownerUnit = nullptr;
     typeDecl = nullptr;
     genericArgs.clear();
@@ -1229,15 +1238,17 @@ lookupDeclaredTypeForTemplateSpelling(const CompilationUnit &lookupUnit,
         return false;
     }
 
-    ownerUnit = lookup.importedModule ? lookup.importedModule->unit : &lookupUnit;
+    ownerUnit =
+        lookup.importedModule ? lookup.importedModule->unit : &lookupUnit;
     typeDecl = lookup.typeDecl;
     for (const auto &param : typeDecl->typeParams) {
         genericArgs.emplace(toStdString(param.localName),
                             toStdString(param.localName));
     }
-    for (std::size_t i = 0; i < typeArgs.size() && i < typeDecl->typeParams.size();
-         ++i) {
-        genericArgs[toStdString(typeDecl->typeParams[i].localName)] = typeArgs[i];
+    for (std::size_t i = 0;
+         i < typeArgs.size() && i < typeDecl->typeParams.size(); ++i) {
+        genericArgs[toStdString(typeDecl->typeParams[i].localName)] =
+            typeArgs[i];
     }
     return true;
 }
@@ -1278,9 +1289,8 @@ substituteTemplateTypeNodeSpelling(const TypeNode *node,
             if (i != 0) {
                 out << ", ";
             }
-            out << substituteTemplateTypeNodeSpelling(applied->args[i],
-                                                      genericArgs,
-                                                      nullDescription);
+            out << substituteTemplateTypeNodeSpelling(
+                applied->args[i], genericArgs, nullDescription);
         }
         out << ']';
         return out.str();
@@ -1296,9 +1306,8 @@ substituteTemplateTypeNodeSpelling(const TypeNode *node,
                " dyn";
     }
     if (auto *pointer = dynamic_cast<const PointerTypeNode *>(node)) {
-        auto name = substituteTemplateTypeNodeSpelling(pointer->base,
-                                                       genericArgs,
-                                                       nullDescription);
+        auto name = substituteTemplateTypeNodeSpelling(
+            pointer->base, genericArgs, nullDescription);
         for (uint32_t i = 0; i < pointer->dim; ++i) {
             name += '*';
         }
@@ -1334,9 +1343,8 @@ substituteTemplateTypeNodeSpelling(const TypeNode *node,
             if (i != 0) {
                 out << ", ";
             }
-            out << substituteTemplateTypeNodeSpelling(tuple->items[i],
-                                                      genericArgs,
-                                                      nullDescription);
+            out << substituteTemplateTypeNodeSpelling(
+                tuple->items[i], genericArgs, nullDescription);
         }
         out << '>';
         return out.str();
@@ -1348,15 +1356,14 @@ substituteTemplateTypeNodeSpelling(const TypeNode *node,
             if (i != 0) {
                 out << ", ";
             }
-            out << substituteTemplateTypeNodeSpelling(func->args[i],
-                                                      genericArgs,
-                                                      nullDescription);
+            out << substituteTemplateTypeNodeSpelling(
+                func->args[i], genericArgs, nullDescription);
         }
         out << ':';
         if (func->ret) {
-            out << ' ' << substituteTemplateTypeNodeSpelling(func->ret,
-                                                             genericArgs,
-                                                             nullDescription);
+            out << ' '
+                << substituteTemplateTypeNodeSpelling(func->ret, genericArgs,
+                                                      nullDescription);
         }
         out << ')';
         return out.str();
@@ -1374,7 +1381,8 @@ templateGenericIdentityArgs(const ResolvedFunction &resolved) {
 }
 
 const ResolvedEntityRef *
-resolvedTemplateExprEntity(const ResolvedFunction &resolved, const AstNode *node) {
+resolvedTemplateExprEntity(const ResolvedFunction &resolved,
+                           const AstNode *node) {
     if (!node) {
         return nullptr;
     }
@@ -1400,7 +1408,8 @@ describeTemplateTypeApplySpelling(const AstTypeApply *typeApply,
     std::string baseName;
     if (auto *field = dynamic_cast<const AstField *>(typeApply->value)) {
         baseName = toStdString(field->name);
-    } else if (auto *dotLike = dynamic_cast<const AstDotLike *>(typeApply->value)) {
+    } else if (auto *dotLike =
+                   dynamic_cast<const AstDotLike *>(typeApply->value)) {
         baseName = describeDotLikeSyntax(dotLike, "<type>");
     } else {
         return {};
@@ -1432,8 +1441,8 @@ templateCallTargetNode(const AstFieldCall *node) {
 
 const std::vector<TypeNode *> *
 templateCallExplicitTypeArgs(const AstFieldCall *node) {
-    auto *typeApply = node ? dynamic_cast<const AstTypeApply *>(node->value)
-                           : nullptr;
+    auto *typeApply =
+        node ? dynamic_cast<const AstTypeApply *>(node->value) : nullptr;
     return typeApply ? typeApply->typeArgs : nullptr;
 }
 
@@ -1448,8 +1457,8 @@ lookupDeclaredProjectedMemberType(const CompilationUnit &unit,
     const ModuleInterface::TypeDecl *typeDecl = nullptr;
     TemplateGenericArgs ownerArgs;
     if (!lookupUnit ||
-        !lookupDeclaredTypeForTemplateSpelling(*lookupUnit, ownerType.spelling,
-                                               ownerUnit, typeDecl, ownerArgs)) {
+        !lookupDeclaredTypeForTemplateSpelling(
+            *lookupUnit, ownerType.spelling, ownerUnit, typeDecl, ownerArgs)) {
         return false;
     }
 
@@ -1483,9 +1492,8 @@ inferTemplateMethodCallType(const CompilationUnit &unit,
     const ModuleInterface::TypeDecl *typeDecl = nullptr;
     TemplateGenericArgs methodArgs;
     if (!lookupUnit ||
-        !lookupDeclaredTypeForTemplateSpelling(*lookupUnit, ownerType.spelling,
-                                               ownerUnit, typeDecl,
-                                               methodArgs)) {
+        !lookupDeclaredTypeForTemplateSpelling(
+            *lookupUnit, ownerType.spelling, ownerUnit, typeDecl, methodArgs)) {
         return {};
     }
 
@@ -1541,7 +1549,8 @@ inferTemplateExprTypeInfo(const AstNode *node, const CompilationUnit &unit,
     }
     if (auto *field = dynamic_cast<const AstField *>(node)) {
         if (auto *binding = resolved.field(field);
-            binding && binding->kind() == ResolvedEntityRef::Kind::LocalBinding &&
+            binding &&
+            binding->kind() == ResolvedEntityRef::Kind::LocalBinding &&
             binding->localBinding() != nullptr) {
             if (auto found = bindingTypes.find(binding->localBinding());
                 found != bindingTypes.end()) {
@@ -1551,10 +1560,10 @@ inferTemplateExprTypeInfo(const AstNode *node, const CompilationUnit &unit,
         return makeTemplateTypeInfo(nullptr, {}, &unit);
     }
     if (auto *castExpr = dynamic_cast<const AstCastExpr *>(node)) {
-        return makeTemplateTypeInfo(
-            nullptr,
-            substituteTemplateTypeNodeSpelling(castExpr->targetType, genericArgs),
-            &unit);
+        return makeTemplateTypeInfo(nullptr,
+                                    substituteTemplateTypeNodeSpelling(
+                                        castExpr->targetType, genericArgs),
+                                    &unit);
     }
     if (auto *refExpr = dynamic_cast<const AstRefExpr *>(node)) {
         auto baseType = inferTemplateExprTypeInfo(refExpr->expr, unit, resolved,
@@ -1566,13 +1575,13 @@ inferTemplateExprTypeInfo(const AstNode *node, const CompilationUnit &unit,
         if (!pointerSpelling.empty()) {
             pointerSpelling += '*';
         }
-        return makeTemplateTypeInfo(nullptr, std::move(pointerSpelling),
-                                    baseType.lookupUnit ? baseType.lookupUnit
-                                                        : &unit);
+        return makeTemplateTypeInfo(
+            nullptr, std::move(pointerSpelling),
+            baseType.lookupUnit ? baseType.lookupUnit : &unit);
     }
     if (auto *dotLike = dynamic_cast<const AstDotLike *>(node)) {
-        auto ownerType = inferTemplateExprTypeInfo(dotLike->parent, unit, resolved,
-                                                   bindingTypes, genericArgs);
+        auto ownerType = inferTemplateExprTypeInfo(
+            dotLike->parent, unit, resolved, bindingTypes, genericArgs);
         if (!hasTemplateTypeInfo(ownerType)) {
             return makeTemplateTypeInfo(nullptr, {}, &unit);
         }
@@ -1590,9 +1599,8 @@ inferTemplateExprTypeInfo(const AstNode *node, const CompilationUnit &unit,
         auto *typeApply = dynamic_cast<const AstTypeApply *>(fieldCall->value);
         auto *binding = resolvedTemplateExprEntity(resolved, fieldCall->value);
         if (!binding) {
-            if (auto *dotLike =
-                    dynamic_cast<const AstDotLike *>(templateCallTargetNode(
-                        fieldCall))) {
+            if (auto *dotLike = dynamic_cast<const AstDotLike *>(
+                    templateCallTargetNode(fieldCall))) {
                 auto ownerType = inferTemplateExprTypeInfo(
                     dotLike->parent, unit, resolved, bindingTypes, genericArgs);
                 if (hasTemplateTypeInfo(ownerType)) {
@@ -1610,7 +1618,8 @@ inferTemplateExprTypeInfo(const AstNode *node, const CompilationUnit &unit,
             TemplateGenericArgs callArgs;
             for (std::size_t i = 0; i < typeApply->typeArgs->size(); ++i) {
                 callArgs.emplace(
-                    toStdString(binding->functionDecl()->typeParams[i].localName),
+                    toStdString(
+                        binding->functionDecl()->typeParams[i].localName),
                     substituteTemplateTypeNodeSpelling(
                         typeApply->typeArgs->at(i), genericArgs));
             }
@@ -1623,7 +1632,8 @@ inferTemplateExprTypeInfo(const AstNode *node, const CompilationUnit &unit,
         if (binding->kind() == ResolvedEntityRef::Kind::GenericType &&
             typeApply != nullptr) {
             return makeTemplateTypeInfo(
-                nullptr, describeTemplateTypeApplySpelling(typeApply, genericArgs),
+                nullptr,
+                describeTemplateTypeApplySpelling(typeApply, genericArgs),
                 &unit);
         }
         if (binding->kind() == ResolvedEntityRef::Kind::Type) {
@@ -1638,9 +1648,8 @@ inferTemplateExprTypeInfo(const AstNode *node, const CompilationUnit &unit,
                     nullptr, describeDotLikeSyntax(dotLike, "<type>"), &unit);
             }
         }
-        if (auto *dotLike =
-                dynamic_cast<const AstDotLike *>(templateCallTargetNode(
-                    fieldCall))) {
+        if (auto *dotLike = dynamic_cast<const AstDotLike *>(
+                templateCallTargetNode(fieldCall))) {
             auto ownerType = inferTemplateExprTypeInfo(
                 dotLike->parent, unit, resolved, bindingTypes, genericArgs);
             if (hasTemplateTypeInfo(ownerType)) {
@@ -1681,16 +1690,15 @@ collectTemplateVisibleLocalTypesInBlock(
 
         if (auto *varDef = dynamic_cast<const AstVarDef *>(node)) {
             auto *binding = resolved.variable(varDef);
-            auto typeInfo =
-                varDef->getTypeNode()
-                    ? makeTemplateTypeInfo(
-                          nullptr,
-                          substituteTemplateTypeNodeSpelling(
-                              varDef->getTypeNode(), genericArgs),
-                          &unit)
-                    : inferTemplateExprTypeInfo(varDef->getInitVal(), unit,
-                                                resolved, bindingTypes,
-                                                genericArgs);
+            auto typeInfo = varDef->getTypeNode()
+                                ? makeTemplateTypeInfo(
+                                      nullptr,
+                                      substituteTemplateTypeNodeSpelling(
+                                          varDef->getTypeNode(), genericArgs),
+                                      &unit)
+                                : inferTemplateExprTypeInfo(
+                                      varDef->getInitVal(), unit, resolved,
+                                      bindingTypes, genericArgs);
             if (binding != nullptr && hasTemplateTypeInfo(typeInfo)) {
                 bindingTypes[binding] = typeInfo;
                 localTypes.emplace(
@@ -1716,8 +1724,8 @@ collectTemplateVisibleLocalTypesInBlock(
             auto begin = locationBeginLine(ifNode->loc);
             if (ifNode->then && branchContainsLine(ifNode->then, line, begin)) {
                 collectTemplateVisibleLocalTypesInNode(
-                    ifNode->then, unit, resolved, line, genericArgs, fallbackPath,
-                    std::move(bindingTypes), localTypes);
+                    ifNode->then, unit, resolved, line, genericArgs,
+                    fallbackPath, std::move(bindingTypes), localTypes);
                 return;
             }
             auto elseBegin = subtreeEndLine(ifNode->then);
@@ -1725,8 +1733,8 @@ collectTemplateVisibleLocalTypesInBlock(
                 branchContainsLine(ifNode->els, line,
                                    elseBegin > 0 ? elseBegin + 1 : begin)) {
                 collectTemplateVisibleLocalTypesInNode(
-                    ifNode->els, unit, resolved, line, genericArgs, fallbackPath,
-                    std::move(bindingTypes), localTypes);
+                    ifNode->els, unit, resolved, line, genericArgs,
+                    fallbackPath, std::move(bindingTypes), localTypes);
                 return;
             }
             continue;
@@ -1734,10 +1742,11 @@ collectTemplateVisibleLocalTypesInBlock(
 
         if (auto *forNode = dynamic_cast<const AstFor *>(node)) {
             auto begin = locationBeginLine(forNode->loc);
-            if (forNode->body && branchContainsLine(forNode->body, line, begin)) {
+            if (forNode->body &&
+                branchContainsLine(forNode->body, line, begin)) {
                 collectTemplateVisibleLocalTypesInNode(
-                    forNode->body, unit, resolved, line, genericArgs, fallbackPath,
-                    std::move(bindingTypes), localTypes);
+                    forNode->body, unit, resolved, line, genericArgs,
+                    fallbackPath, std::move(bindingTypes), localTypes);
                 return;
             }
             auto elseBegin = subtreeEndLine(forNode->body);
@@ -1745,8 +1754,8 @@ collectTemplateVisibleLocalTypesInBlock(
                 branchContainsLine(forNode->els, line,
                                    elseBegin > 0 ? elseBegin + 1 : begin)) {
                 collectTemplateVisibleLocalTypesInNode(
-                    forNode->els, unit, resolved, line, genericArgs, fallbackPath,
-                    std::move(bindingTypes), localTypes);
+                    forNode->els, unit, resolved, line, genericArgs,
+                    fallbackPath, std::move(bindingTypes), localTypes);
                 return;
             }
         }
@@ -1764,10 +1773,9 @@ collectTemplateVisibleLocalTypesInNode(
         return;
     }
     if (auto *block = dynamic_cast<const AstStatList *>(node)) {
-        collectTemplateVisibleLocalTypesInBlock(block, unit, resolved, line,
-                                                genericArgs, fallbackPath,
-                                                std::move(bindingTypes),
-                                                localTypes);
+        collectTemplateVisibleLocalTypesInBlock(
+            block, unit, resolved, line, genericArgs, fallbackPath,
+            std::move(bindingTypes), localTypes);
         return;
     }
     if (auto *ifNode = dynamic_cast<const AstIf *>(node)) {
@@ -1820,16 +1828,15 @@ collectTemplateVisibleLocalTypeSpellings(const CompilationUnit &unit,
             continue;
         }
         bindingTypes.emplace(
-            param,
-            makeTemplateTypeInfo(
-                nullptr,
-                substituteTemplateTypeNodeSpelling(decl->typeNode, genericArgs),
-                &unit));
+            param, makeTemplateTypeInfo(nullptr,
+                                        substituteTemplateTypeNodeSpelling(
+                                            decl->typeNode, genericArgs),
+                                        &unit));
     }
 
     std::unordered_map<std::string, std::string> localTypes;
-    collectTemplateVisibleLocalTypesInNode(resolved.body(), unit, resolved, line,
-                                           genericArgs, fallbackPath,
+    collectTemplateVisibleLocalTypesInNode(resolved.body(), unit, resolved,
+                                           line, genericArgs, fallbackPath,
                                            std::move(bindingTypes), localTypes);
     return localTypes;
 }
@@ -2074,13 +2081,14 @@ collectAllSemanticLocalsInNode(const HIRNode *node,
         collectAllSemanticLocalsInNode(ifNode->getThenBlock(), fallbackPath,
                                        locals);
         if (ifNode->hasElseBlock()) {
-            collectAllSemanticLocalsInNode(ifNode->getElseBlock(),
-                                           fallbackPath, locals);
+            collectAllSemanticLocalsInNode(ifNode->getElseBlock(), fallbackPath,
+                                           locals);
         }
         return;
     }
     if (auto *forNode = dynamic_cast<const HIRFor *>(node)) {
-        collectAllSemanticLocalsInNode(forNode->getBody(), fallbackPath, locals);
+        collectAllSemanticLocalsInNode(forNode->getBody(), fallbackPath,
+                                       locals);
         if (forNode->hasElseBlock()) {
             collectAllSemanticLocalsInNode(forNode->getElseBlock(),
                                            fallbackPath, locals);
@@ -2140,7 +2148,8 @@ enrichLocalsWithAnalysis(const CompilationUnit *unit,
         return;
     }
     if (!record->hir) {
-        if (!record->resolved || !record->resolved->isTemplateValidationOnly()) {
+        if (!record->resolved ||
+            !record->resolved->isTemplateValidationOnly()) {
             return;
         }
         if (!unit) {
@@ -2152,7 +2161,8 @@ enrichLocalsWithAnalysis(const CompilationUnit *unit,
             if (local.kind != "local") {
                 continue;
             }
-            if (auto found = localTypes.find(localSymbolKey(local.name, local.loc));
+            if (auto found =
+                    localTypes.find(localSymbolKey(local.name, local.loc));
                 found != localTypes.end()) {
                 local.type = found->second;
             }
@@ -2175,9 +2185,8 @@ enrichLocalsWithAnalysis(const CompilationUnit *unit,
 
     std::unordered_map<std::string, std::string> paramTypes;
     for (const auto &param : record->hir->getParams()) {
-        paramTypes[toStdString(param.name)] =
-            describeResolvedType(param.object ? param.object->getType()
-                                              : nullptr);
+        paramTypes[toStdString(param.name)] = describeResolvedType(
+            param.object ? param.object->getType() : nullptr);
     }
     for (auto &local : locals) {
         if (local.kind == "param") {
@@ -2237,8 +2246,8 @@ collectVisibleLocalsForLine(const CompilationUnit *unit,
     }
 
     if (context.hasImplicitSelf) {
-        locals.push_back(LocalSymbolRecord{
-            "self", "self", "", context.selfDetail, context.loc, 0});
+        locals.push_back(LocalSymbolRecord{"self", "self", "",
+                                           context.selfDetail, context.loc, 0});
     }
     if (context.decl->args) {
         for (auto *arg : *context.decl->args) {
@@ -2247,8 +2256,7 @@ collectVisibleLocalsForLine(const CompilationUnit *unit,
                 continue;
             }
             locals.push_back(LocalSymbolRecord{
-                "param",
-                toStdString(varDecl->field),
+                "param", toStdString(varDecl->field),
                 describeBindingDetail(varDecl->bindingKind),
                 describeDeclaredType(varDecl->typeNode),
                 makeSourceLocation(varDecl->loc, fallbackPath), 0});
@@ -2258,7 +2266,8 @@ collectVisibleLocalsForLine(const CompilationUnit *unit,
     collectLocalsInNode(context.decl->body, line, 0, fallbackPath, locals);
     locals = dedupeVisibleLocals(std::move(locals));
     record = findAnalyzedFunctionRecord(records, context.decl);
-    enrichLocalsWithAnalysis(unit, records, context, line, fallbackPath, locals);
+    enrichLocalsWithAnalysis(unit, records, context, line, fallbackPath,
+                             locals);
     return true;
 }
 
@@ -2317,8 +2326,8 @@ isBuiltinTypeName(std::string_view name) {
     return name == "u8" || name == "i8" || name == "u16" || name == "i16" ||
            name == "u32" || name == "i32" || name == "u64" || name == "i64" ||
            name == "usize" || name == "int" || name == "uint" ||
-           name == "f32" || name == "f64" || name == "bool" ||
-           name == "void" || name == "any";
+           name == "f32" || name == "f64" || name == "bool" || name == "void" ||
+           name == "any";
 }
 
 std::string
@@ -2407,8 +2416,7 @@ resolveNamedTypeRecord(const TypeNode *typeNode,
     auto scope = std::string(ownerQualifiedName);
     while (!scope.empty()) {
         auto candidate = scope + "." + rawName;
-        if (auto *match =
-                findNamedTypeByQualifiedName(namedTypes, candidate)) {
+        if (auto *match = findNamedTypeByQualifiedName(namedTypes, candidate)) {
             return match;
         }
 
@@ -2438,9 +2446,9 @@ collectStructFieldQueryData(const AstStructDecl *decl,
         return;
     }
     auto qualifiedName = ownerPrefix + toStdString(decl->name);
-    namedTypes.push_back(NamedTypeRecord{
-        toStdString(decl->name), qualifiedName, decl,
-        makeSourceLocation(decl->loc, fallbackPath)});
+    namedTypes.push_back(
+        NamedTypeRecord{toStdString(decl->name), qualifiedName, decl,
+                        makeSourceLocation(decl->loc, fallbackPath)});
     collectOwnedFieldQueryData(qualifiedName, decl->body, fallbackPath, fields,
                                namedTypes);
 }
@@ -2600,8 +2608,8 @@ makeFieldTypeMemberJson(const AstVarDecl *field,
     root["name"] = name;
     root["qualifiedName"] = std::string(ownerQualifiedName) + "." + name;
     root["type"] = describeFieldType(field->typeNode);
-    root["location"] = sourceLocationJson(
-        makeSourceLocation(field->loc, fallbackPath));
+    root["location"] =
+        sourceLocationJson(makeSourceLocation(field->loc, fallbackPath));
     root["typeInfo"] = makeTypeInfoJson(field->typeNode, ownerQualifiedName,
                                         namedTypes, fallbackPath, activeTypes);
     return root;
@@ -2621,9 +2629,8 @@ makeTupleMemberJson(std::size_t index, const TypeNode *typeNode,
                                 ? name
                                 : std::string(ownerQualifiedName) + "." + name;
     root["type"] = describeFieldType(typeNode);
-    root["location"] = sourceLocationJson(
-        makeSourceLocation(typeNode ? typeNode->loc : location(),
-                           fallbackPath));
+    root["location"] = sourceLocationJson(makeSourceLocation(
+        typeNode ? typeNode->loc : location(), fallbackPath));
     root["typeInfo"] = makeTypeInfoJson(typeNode, ownerQualifiedName,
                                         namedTypes, fallbackPath, activeTypes);
     return root;
@@ -2748,8 +2755,9 @@ fieldInfoItemJson(const FieldQueryRecord &field,
     root["location"] = sourceLocationJson(field.loc);
 
     std::unordered_set<std::string> activeTypes;
-    root["typeInfo"] = makeTypeInfoJson(field.typeNode, field.ownerQualifiedName,
-                                        namedTypes, fallbackPath, activeTypes);
+    root["typeInfo"] =
+        makeTypeInfoJson(field.typeNode, field.ownerQualifiedName, namedTypes,
+                         fallbackPath, activeTypes);
     return root;
 }
 
@@ -2768,10 +2776,9 @@ printFieldMembers(std::ostream &out, const Json &typeInfo, int indent) {
         out << std::string(static_cast<std::size_t>(indent + 2), ' ')
             << member["name"].get<std::string>() << ": "
             << member["type"].get<std::string>();
-        SourceLocation loc{
-            member["location"]["path"].get<std::string>(),
-            member["location"]["line"].get<int>(),
-            member["location"]["column"].get<int>()};
+        SourceLocation loc{member["location"]["path"].get<std::string>(),
+                           member["location"]["line"].get<int>(),
+                           member["location"]["column"].get<int>()};
         auto locLabel = locationLabel(loc);
         if (!locLabel.empty()) {
             out << " @" << locLabel;
@@ -2882,7 +2889,8 @@ describeInterfaceSignature(
         out << genericParams;
     }
     out << '(';
-    const auto paramCount = std::max(paramNames.size(), paramTypeSpellings.size());
+    const auto paramCount =
+        std::max(paramNames.size(), paramTypeSpellings.size());
     for (std::size_t i = 0; i < paramCount; ++i) {
         if (i != 0) {
             out << ", ";
@@ -2921,14 +2929,14 @@ collectOrderedStructMembers(StructType *structType) {
             structType->getMemberAccess(entry.getKey()),
             structType->isEmbeddedMember(entry.getKey())});
     }
-    std::sort(members.begin(), members.end(),
-              [](const OrderedResolvedMember &lhs,
-                 const OrderedResolvedMember &rhs) {
-                  if (lhs.index != rhs.index) {
-                      return lhs.index < rhs.index;
-                  }
-                  return lhs.name < rhs.name;
-              });
+    std::sort(
+        members.begin(), members.end(),
+        [](const OrderedResolvedMember &lhs, const OrderedResolvedMember &rhs) {
+            if (lhs.index != rhs.index) {
+                return lhs.index < rhs.index;
+            }
+            return lhs.name < rhs.name;
+        });
     return members;
 }
 
@@ -2967,8 +2975,8 @@ makeResolvedTypeInfoJson(TypeClass *type,
     }
 
     if (auto *qualified = type->as<ConstType>()) {
-        auto base = makeResolvedTypeInfoJson(qualified->getBaseType(),
-                                             activeTypes);
+        auto base =
+            makeResolvedTypeInfoJson(qualified->getBaseType(), activeTypes);
         root["kind"] = "const";
         root["hasMembers"] = base["hasMembers"];
         root["members"] = base["members"];
@@ -2996,9 +3004,8 @@ makeResolvedTypeInfoJson(TypeClass *type,
         const auto &itemTypes = tupleType->getItemTypes();
         for (std::size_t i = 0; i < itemTypes.size(); ++i) {
             root["members"].push_back(makeResolvedMemberJson(
-                toStdString(tupleType->full_name),
-                TupleType::buildFieldName(i), itemTypes[i],
-                AccessKind::GetOnly, false, activeTypes));
+                toStdString(tupleType->full_name), TupleType::buildFieldName(i),
+                itemTypes[i], AccessKind::GetOnly, false, activeTypes));
         }
         root["hasMembers"] = !itemTypes.empty();
         return root;
@@ -3033,13 +3040,13 @@ makeResolvedTypeInfoJson(TypeClass *type,
 
 Json
 makeTypeMethodJson(const std::string &name, const std::string &signature,
-                   bool generic, AccessKind receiverAccess) {
+                   bool generic, ReceiverMode receiverMode) {
     Json root = Json::object();
     root["kind"] = "method";
     root["name"] = name;
     root["signature"] = signature;
     root["generic"] = generic;
-    root["receiverAccess"] = accessKindKeyword(receiverAccess);
+    root["receiverMode"] = receiverModeKeyword(receiverMode);
     return root;
 }
 
@@ -3050,7 +3057,8 @@ collectTypeMethodsJson(const ModuleInterface::TypeDecl &decl) {
     if (structType) {
         std::vector<std::pair<std::string, FuncType *>> concreteMethods;
         for (const auto &entry : structType->getMethodTypes()) {
-            concreteMethods.emplace_back(entry.getKey().str(), entry.getValue());
+            concreteMethods.emplace_back(entry.getKey().str(),
+                                         entry.getValue());
         }
         std::sort(concreteMethods.begin(), concreteMethods.end(),
                   [](const auto &lhs, const auto &rhs) {
@@ -3062,24 +3070,27 @@ collectTypeMethodsJson(const ModuleInterface::TypeDecl &decl) {
                 paramNames = *stored;
             }
             const std::size_t argOffset =
-                type && type->getArgTypes().size() == paramNames.size() + 1
-                    ? 1
-                    : 0;
+                type && type->getArgTypes().size() == paramNames.size() + 1 ? 1
+                                                                            : 0;
+            auto receiverMode = structType->getMethodReceiverMode(name);
+            if (!receiverMode) {
+                internalError(
+                    "struct method is missing receiver mode metadata");
+            }
             methods.push_back(makeTypeMethodJson(
-                name, describeResolvedFuncSignature(type, &paramNames,
-                                                    argOffset),
-                false, AccessKind::GetOnly));
+                name,
+                describeResolvedFuncSignature(type, &paramNames, argOffset),
+                false, *receiverMode));
         }
     }
     for (const auto &method : decl.methodTemplates) {
         methods.push_back(makeTypeMethodJson(
             toStdString(method.localName),
-            describeInterfaceSignature(method.paramNames,
-                                       method.paramBindingKinds,
-                                       method.paramTypeSpellings,
-                                       method.returnTypeSpelling,
-                                       method.typeParams),
-            true, method.receiverAccess));
+            describeInterfaceSignature(
+                method.paramNames, method.paramBindingKinds,
+                method.paramTypeSpellings, method.returnTypeSpelling,
+                method.typeParams),
+            true, method.receiverMode));
     }
     return methods;
 }
@@ -3185,11 +3196,10 @@ makeTraitPrintItem(const ModuleInterface::TraitDecl &decl) {
         Json item = Json::object();
         item["kind"] = "method";
         item["name"] = toStdString(method.localName);
-        item["signature"] =
-            describeInterfaceSignature(method.paramNames, {},
-                                       method.paramTypeSpellings,
-                                       method.returnTypeSpelling);
-        item["receiverAccess"] = accessKindKeyword(method.receiverAccess);
+        item["signature"] = describeInterfaceSignature(
+            method.paramNames, {}, method.paramTypeSpellings,
+            method.returnTypeSpelling);
+        item["receiverMode"] = receiverModeKeyword(method.receiverMode);
         root["methods"].push_back(std::move(item));
     }
     return root;
@@ -3201,13 +3211,12 @@ makeFunctionPrintItem(const ModuleInterface::FunctionDecl &decl) {
     root["kind"] = "func";
     root["name"] = toStdString(decl.localName);
     root["qualifiedName"] = toStdString(decl.symbolName);
-    root["signature"] = decl.type
-                            ? describeResolvedFuncSignature(decl.type,
-                                                            &decl.paramNames)
-                            : describeInterfaceSignature(
-                                  decl.paramNames, decl.paramBindingKinds,
-                                  decl.paramTypeSpellings,
-                                  decl.returnTypeSpelling, decl.typeParams);
+    root["signature"] =
+        decl.type ? describeResolvedFuncSignature(decl.type, &decl.paramNames)
+                  : describeInterfaceSignature(
+                        decl.paramNames, decl.paramBindingKinds,
+                        decl.paramTypeSpellings, decl.returnTypeSpelling,
+                        decl.typeParams);
     root["genericParams"] = genericParamsJson(decl.typeParams);
     return root;
 }
@@ -3265,27 +3274,26 @@ struct ValueBindingMatch {
 
 Json
 makeBindingPrintItem(const ValueBindingMatch &binding) {
-    return makeBindingPrintItem(binding.kind, binding.name,
-                                binding.qualifiedName, binding.detail,
-                                binding.type, binding.loc,
-                                binding.contextName, binding.typeDisplay);
+    return makeBindingPrintItem(
+        binding.kind, binding.name, binding.qualifiedName, binding.detail,
+        binding.type, binding.loc, binding.contextName, binding.typeDisplay);
 }
 
 Json
 makeMemberValuePrintItem(std::string ownerName, std::string memberName,
                          const TemplateTypeInfo &ownerType,
-                         const TemplateTypeInfo &memberType,
-                         AccessKind access, bool embedded) {
+                         const TemplateTypeInfo &memberType, AccessKind access,
+                         bool embedded) {
     Json root = Json::object();
     root["kind"] = "member";
     root["name"] = std::move(memberName);
     root["owner"] = std::move(ownerName);
-    root["qualifiedName"] =
-        root["owner"].get<std::string>() + "." + root["name"].get<std::string>();
+    root["qualifiedName"] = root["owner"].get<std::string>() + "." +
+                            root["name"].get<std::string>();
     root["detail"] = "field";
-    root["ownerType"] =
-        ownerType.typeRef ? describeResolvedType(ownerType.typeRef)
-                          : ownerType.spelling;
+    root["ownerType"] = ownerType.typeRef
+                            ? describeResolvedType(ownerType.typeRef)
+                            : ownerType.spelling;
     root["type"] = memberType.typeRef ? describeResolvedType(memberType.typeRef)
                                       : memberType.spelling;
     root["access"] = accessKindKeyword(access);
@@ -3293,8 +3301,8 @@ makeMemberValuePrintItem(std::string ownerName, std::string memberName,
     root["location"] = sourceLocationJson(SourceLocation{});
     if (memberType.typeRef != nullptr) {
         std::unordered_set<std::string> activeTypes;
-        root["typeInfo"] = makeResolvedTypeInfoJson(memberType.typeRef,
-                                                    activeTypes);
+        root["typeInfo"] =
+            makeResolvedTypeInfoJson(memberType.typeRef, activeTypes);
     } else {
         root["typeInfo"] = Json::object();
         root["typeInfo"]["spelling"] = memberType.spelling;
@@ -3311,7 +3319,8 @@ splitFirstQualifiedComponent(std::string_view query, std::string &head,
                              std::string &tail) {
     auto cleaned = trimCopy(query);
     auto split = cleaned.find('.');
-    if (split == std::string::npos || split == 0 || split + 1 >= cleaned.size()) {
+    if (split == std::string::npos || split == 0 ||
+        split + 1 >= cleaned.size()) {
         return false;
     }
     head = cleaned.substr(0, split);
@@ -3386,9 +3395,8 @@ lookupQualifiedPrintItem(const CompilationUnit &unit, std::string_view query,
                          Json &item) {
     const CompilationUnit *inlineOwnerUnit = nullptr;
     std::string inlineQualifiedName;
-    if (auto *inlineDecl =
-            lookupQualifiedInlineDecl(unit, query, inlineOwnerUnit,
-                                      inlineQualifiedName)) {
+    if (auto *inlineDecl = lookupQualifiedInlineDecl(
+            unit, query, inlineOwnerUnit, inlineQualifiedName)) {
         item = makeTopLevelVarPrintItem(
             inlineDecl, std::move(inlineQualifiedName),
             toStdString(inlineOwnerUnit->path()),
@@ -3423,9 +3431,8 @@ lookupQualifiedValuePrintItem(const CompilationUnit &unit,
                               std::string_view query, Json &item) {
     const CompilationUnit *inlineOwnerUnit = nullptr;
     std::string inlineQualifiedName;
-    if (auto *inlineDecl =
-            lookupQualifiedInlineDecl(unit, query, inlineOwnerUnit,
-                                      inlineQualifiedName)) {
+    if (auto *inlineDecl = lookupQualifiedInlineDecl(
+            unit, query, inlineOwnerUnit, inlineQualifiedName)) {
         item = makeTopLevelVarPrintItem(
             inlineDecl, std::move(inlineQualifiedName),
             toStdString(inlineOwnerUnit->path()),
@@ -3446,8 +3453,8 @@ lookupQualifiedValuePrintItem(const CompilationUnit &unit,
 }
 
 bool
-lookupQualifiedTypePrintItem(const CompilationUnit &unit, std::string_view query,
-                             Json &item) {
+lookupQualifiedTypePrintItem(const CompilationUnit &unit,
+                             std::string_view query, Json &item) {
     auto lookup = lookupQualifiedTopLevelName(unit, query);
     if (lookup.isType() && lookup.typeDecl) {
         item = makeTypePrintItem(
@@ -3501,10 +3508,10 @@ unknownPrintQueryMessage(PrintQueryKind kind, std::string_view query) {
 
 bool
 lookupVisibleLocalBinding(const CompilationUnit *unit,
-                         const AstNode *syntaxTree,
-                         const std::vector<AnalyzedFunctionRecord> &records,
-                         const std::string &fallbackPath, int line,
-                         std::string_view query, ValueBindingMatch &binding) {
+                          const AstNode *syntaxTree,
+                          const std::vector<AnalyzedFunctionRecord> &records,
+                          const std::string &fallbackPath, int line,
+                          std::string_view query, ValueBindingMatch &binding) {
     FunctionContext context;
     std::vector<LocalSymbolRecord> locals;
     const AnalyzedFunctionRecord *record = nullptr;
@@ -3530,11 +3537,9 @@ lookupVisibleLocalBinding(const CompilationUnit *unit,
             found != localTypes.end()) {
             type = found->second;
         }
-        binding = ValueBindingMatch{local.kind,       local.name,
-                                    qualifiedName,   local.detail,
-                                    type,            local.type,
-                                    local.loc,
-                                    context.qualifiedName};
+        binding = ValueBindingMatch{
+            local.kind, local.name, qualifiedName, local.detail,
+            type,       local.type, local.loc,     context.qualifiedName};
         return true;
     }
     return false;
@@ -3547,8 +3552,8 @@ lookupVisibleLocalPrintItem(const CompilationUnit *unit,
                             const std::string &fallbackPath, int line,
                             std::string_view query, Json &item) {
     ValueBindingMatch binding;
-    if (!lookupVisibleLocalBinding(unit, syntaxTree, records, fallbackPath, line,
-                                   query, binding)) {
+    if (!lookupVisibleLocalBinding(unit, syntaxTree, records, fallbackPath,
+                                   line, query, binding)) {
         return false;
     }
     item = makeBindingPrintItem(binding);
@@ -3565,11 +3570,11 @@ topLevelStatementListForQuery(const AstNode *root) {
 
 bool
 lookupTopLevelVarBinding(const CompilationUnit *ownerUnit,
-                        const AstNode *syntaxTree,
-                        const std::vector<AnalyzedFunctionRecord> &records,
-                        const HIRModule *analyzedModule,
-                        const std::string &fallbackPath,
-                        std::string_view query, ValueBindingMatch &binding) {
+                         const AstNode *syntaxTree,
+                         const std::vector<AnalyzedFunctionRecord> &records,
+                         const HIRModule *analyzedModule,
+                         const std::string &fallbackPath,
+                         std::string_view query, ValueBindingMatch &binding) {
     const auto cleanedQuery = trimCopy(query);
     if (cleanedQuery.empty() || cleanedQuery.find('.') != std::string::npos) {
         return false;
@@ -3596,7 +3601,8 @@ lookupTopLevelVarBinding(const CompilationUnit *ownerUnit,
     }
 
     TypeClass *type = nullptr;
-    if (auto *record = findTopLevelEntryRecord(records); record && record->hir) {
+    if (auto *record = findTopLevelEntryRecord(records);
+        record && record->hir) {
         std::vector<SemanticLocalRecord> locals;
         collectAllSemanticLocalsInNode(record->hir->getBody(), fallbackPath,
                                        locals);
@@ -3609,9 +3615,11 @@ lookupTopLevelVarBinding(const CompilationUnit *ownerUnit,
         }
     }
     if (!type) {
-        if (auto *hir = findTopLevelEntryHIR(analyzedModule); hir && hir->getBody()) {
+        if (auto *hir = findTopLevelEntryHIR(analyzedModule);
+            hir && hir->getBody()) {
             std::vector<SemanticLocalRecord> locals;
-            collectAllSemanticLocalsInNode(hir->getBody(), fallbackPath, locals);
+            collectAllSemanticLocalsInNode(hir->getBody(), fallbackPath,
+                                           locals);
             for (const auto &local : locals) {
                 if (local.name == cleanedQuery &&
                     local.loc.line == varDecl->loc.begin.line) {
@@ -3626,24 +3634,29 @@ lookupTopLevelVarBinding(const CompilationUnit *ownerUnit,
     }
 
     binding = ValueBindingMatch{
-        "top-level-var", cleanedQuery, cleanedQuery,
-        describeVarDefDetail(varDecl), type,
+        "top-level-var",
+        cleanedQuery,
+        cleanedQuery,
+        describeVarDefDetail(varDecl),
+        type,
         type == nullptr ? describeDeclaredType(varDecl->getTypeNode())
                         : std::string(),
-        makeSourceLocation(varDecl->loc, fallbackPath), "<top-level>"};
+        makeSourceLocation(varDecl->loc, fallbackPath),
+        "<top-level>"};
     return true;
 }
 
 bool
 lookupTopLevelVarPrintItem(const CompilationUnit *ownerUnit,
-                          const AstNode *syntaxTree,
-                          const std::vector<AnalyzedFunctionRecord> &records,
-                          const HIRModule *analyzedModule,
-                          const std::string &fallbackPath,
-                          std::string_view query, Json &item) {
+                           const AstNode *syntaxTree,
+                           const std::vector<AnalyzedFunctionRecord> &records,
+                           const HIRModule *analyzedModule,
+                           const std::string &fallbackPath,
+                           std::string_view query, Json &item) {
     ValueBindingMatch binding;
-    if (!lookupTopLevelVarBinding(ownerUnit, syntaxTree, records, analyzedModule,
-                                  fallbackPath, query, binding)) {
+    if (!lookupTopLevelVarBinding(ownerUnit, syntaxTree, records,
+                                  analyzedModule, fallbackPath, query,
+                                  binding)) {
         return false;
     }
     item = makeBindingPrintItem(binding);
@@ -3655,7 +3668,8 @@ splitMemberQuery(std::string_view query, std::string &owner,
                  std::string &member) {
     auto cleaned = trimCopy(query);
     auto split = cleaned.rfind('.');
-    if (split == std::string::npos || split == 0 || split + 1 >= cleaned.size()) {
+    if (split == std::string::npos || split == 0 ||
+        split + 1 >= cleaned.size()) {
         return false;
     }
     owner = cleaned.substr(0, split);
@@ -3664,8 +3678,8 @@ splitMemberQuery(std::string_view query, std::string &owner,
 }
 
 bool
-lookupTopLevelGlobalValueType(const CompilationUnit &unit, std::string_view query,
-                             TemplateTypeInfo &type) {
+lookupTopLevelGlobalValueType(const CompilationUnit &unit,
+                              std::string_view query, TemplateTypeInfo &type) {
     const auto cleanedQuery = trimCopy(query);
     if (cleanedQuery.empty() || cleanedQuery.find('.') != std::string::npos) {
         return false;
@@ -3687,18 +3701,20 @@ lookupDirectValueType(const CompilationUnit &unit, const AstNode *syntaxTree,
                       std::string_view query, TemplateTypeInfo &type) {
     type = makeTemplateTypeInfo(nullptr, {}, &unit);
     ValueBindingMatch binding;
-    if (lookupVisibleLocalBinding(&unit, syntaxTree, records, fallbackPath, line,
-                                  query, binding)) {
+    if (lookupVisibleLocalBinding(&unit, syntaxTree, records, fallbackPath,
+                                  line, query, binding)) {
         type = makeTemplateTypeInfo(
             binding.type,
-            binding.type != nullptr ? std::string() : binding.typeDisplay, &unit);
+            binding.type != nullptr ? std::string() : binding.typeDisplay,
+            &unit);
         return true;
     }
     if (lookupTopLevelVarBinding(&unit, syntaxTree, records, analyzedModule,
                                  fallbackPath, query, binding)) {
         type = makeTemplateTypeInfo(
             binding.type,
-            binding.type != nullptr ? std::string() : binding.typeDisplay, &unit);
+            binding.type != nullptr ? std::string() : binding.typeDisplay,
+            &unit);
         return true;
     }
     return lookupTopLevelGlobalValueType(unit, query, type);
@@ -3737,21 +3753,19 @@ lookupProjectedMemberType(const CompilationUnit &unit,
                           std::string_view memberName,
                           TemplateTypeInfo &memberType, AccessKind &access,
                           bool &embedded) {
-    memberType = makeTemplateTypeInfo(nullptr, {},
-                                      ownerType.lookupUnit
-                                          ? ownerType.lookupUnit
-                                          : &unit);
+    memberType = makeTemplateTypeInfo(
+        nullptr, {}, ownerType.lookupUnit ? ownerType.lookupUnit : &unit);
     access = AccessKind::GetOnly;
     embedded = false;
     if (ownerType.typeRef != nullptr) {
         auto *baseType = stripProjectableOwnerType(ownerType.typeRef);
-        if (auto *structType = baseType ? baseType->as<StructType>() : nullptr) {
+        if (auto *structType =
+                baseType ? baseType->as<StructType>() : nullptr) {
             auto *member = structType->getMember(memberName);
             if (member) {
-                memberType = makeTemplateTypeInfo(member->first, {},
-                                                  ownerType.lookupUnit
-                                                      ? ownerType.lookupUnit
-                                                      : &unit);
+                memberType = makeTemplateTypeInfo(
+                    member->first, {},
+                    ownerType.lookupUnit ? ownerType.lookupUnit : &unit);
                 access = structType->getMemberAccess(memberName);
                 embedded = structType->isEmbeddedMember(memberName);
                 return ValueMemberLookupStatus::Found;
@@ -3760,10 +3774,9 @@ lookupProjectedMemberType(const CompilationUnit &unit,
         if (auto *tupleType = baseType ? baseType->as<TupleType>() : nullptr) {
             TupleType::ValueTy member;
             if (tupleType->getMember(llvm::StringRef(memberName), member)) {
-                memberType = makeTemplateTypeInfo(member.first, {},
-                                                  ownerType.lookupUnit
-                                                      ? ownerType.lookupUnit
-                                                      : &unit);
+                memberType = makeTemplateTypeInfo(
+                    member.first, {},
+                    ownerType.lookupUnit ? ownerType.lookupUnit : &unit);
                 return ValueMemberLookupStatus::Found;
             }
         }
@@ -3793,10 +3806,9 @@ lookupValuePathType(const CompilationUnit &unit, const AstNode *syntaxTree,
     }
 
     TemplateTypeInfo ownerType;
-    auto ownerStatus = lookupValuePathType(unit, syntaxTree, records,
-                                           analyzedModule,
-                                           fallbackPath, line, ownerName,
-                                           ownerType);
+    auto ownerStatus =
+        lookupValuePathType(unit, syntaxTree, records, analyzedModule,
+                            fallbackPath, line, ownerName, ownerType);
     if (ownerStatus != ValueMemberLookupStatus::Found) {
         return ownerStatus;
     }
@@ -3821,10 +3833,9 @@ lookupValueMemberPrintItem(const CompilationUnit &unit,
     }
 
     TemplateTypeInfo ownerType;
-    auto ownerStatus = lookupValuePathType(unit, syntaxTree, records,
-                                           analyzedModule,
-                                           fallbackPath, line, ownerName,
-                                           ownerType);
+    auto ownerStatus =
+        lookupValuePathType(unit, syntaxTree, records, analyzedModule,
+                            fallbackPath, line, ownerName, ownerType);
     if (ownerStatus != ValueMemberLookupStatus::Found) {
         return ownerStatus;
     }
@@ -3832,9 +3843,8 @@ lookupValueMemberPrintItem(const CompilationUnit &unit,
     TemplateTypeInfo memberType;
     AccessKind access = AccessKind::GetOnly;
     bool embedded = false;
-    auto memberStatus =
-        lookupProjectedMemberType(unit, ownerType, memberName, memberType, access,
-                                  embedded);
+    auto memberStatus = lookupProjectedMemberType(unit, ownerType, memberName,
+                                                  memberType, access, embedded);
     if (memberStatus != ValueMemberLookupStatus::Found) {
         return memberStatus;
     }
@@ -3896,8 +3906,8 @@ findFieldCandidates(const CompilationUnit &unit, std::string_view query) {
     }
 
     for (const auto &entry : interface->types()) {
-        auto *structType = entry.second.type ? entry.second.type->as<StructType>()
-                                             : nullptr;
+        auto *structType =
+            entry.second.type ? entry.second.type->as<StructType>() : nullptr;
         if (!structType) {
             continue;
         }
@@ -3918,9 +3928,10 @@ makeFieldCandidateSummaryJson(const PrintedFieldCandidate &candidate) {
     Json root = Json::object();
     root["kind"] = "field";
     root["name"] = candidate.fieldName;
-    root["qualifiedName"] = candidate.ownerName.empty()
-                                ? candidate.fieldName
-                                : candidate.ownerName + "." + candidate.fieldName;
+    root["qualifiedName"] =
+        candidate.ownerName.empty()
+            ? candidate.fieldName
+            : candidate.ownerName + "." + candidate.fieldName;
     root["type"] = describeResolvedType(candidate.fieldType);
     root["access"] = accessKindKeyword(candidate.access);
     root["embedded"] = candidate.embedded;
@@ -3932,16 +3943,18 @@ makeFieldPrintItem(const PrintedFieldCandidate &candidate) {
     Json root = Json::object();
     root["kind"] = "field";
     root["name"] = candidate.fieldName;
-    root["qualifiedName"] = candidate.ownerName.empty()
-                                ? candidate.fieldName
-                                : candidate.ownerName + "." + candidate.fieldName;
+    root["qualifiedName"] =
+        candidate.ownerName.empty()
+            ? candidate.fieldName
+            : candidate.ownerName + "." + candidate.fieldName;
     root["owner"] = candidate.ownerName;
     root["type"] = describeResolvedType(candidate.fieldType);
     root["access"] = accessKindKeyword(candidate.access);
     root["embedded"] = candidate.embedded;
     root["location"] = sourceLocationJson(SourceLocation{});
     std::unordered_set<std::string> activeTypes;
-    root["typeInfo"] = makeResolvedTypeInfoJson(candidate.fieldType, activeTypes);
+    root["typeInfo"] =
+        makeResolvedTypeInfoJson(candidate.fieldType, activeTypes);
     return root;
 }
 
@@ -3984,16 +3997,14 @@ class SymbolCollector {
             }
             if (auto *field = dynamic_cast<AstVarDecl *>(stmt)) {
                 auto qualified = ownerLabel + "." + toStdString(field->field);
-                append(SymbolKind::Field, toStdString(field->field),
-                       qualified, describeTypeNode(field->typeNode, "void"),
-                       field->loc);
+                append(SymbolKind::Field, toStdString(field->field), qualified,
+                       describeTypeNode(field->typeNode, "void"), field->loc);
                 continue;
             }
             if (auto *method = dynamic_cast<AstFuncDecl *>(stmt)) {
                 auto qualified = ownerLabel + "." + toStdString(method->name);
-                append(SymbolKind::Method, toStdString(method->name),
-                       qualified, describeFunctionSignature(method),
-                       method->loc);
+                append(SymbolKind::Method, toStdString(method->name), qualified,
+                       describeFunctionSignature(method), method->loc);
                 continue;
             }
             if (auto *nestedStruct = dynamic_cast<AstStructDecl *>(stmt)) {
@@ -4008,12 +4019,13 @@ class SymbolCollector {
             if (auto *nestedGlobal = dynamic_cast<AstGlobalDecl *>(stmt)) {
                 auto qualified =
                     ownerLabel + "." + toStdString(nestedGlobal->getName());
-                append(SymbolKind::Global, toStdString(nestedGlobal->getName()),
-                       qualified,
-                       nestedGlobal->hasTypeNode()
-                           ? describeTypeNode(nestedGlobal->getTypeNode(), "void")
-                           : std::string(),
-                       nestedGlobal->loc);
+                append(
+                    SymbolKind::Global, toStdString(nestedGlobal->getName()),
+                    qualified,
+                    nestedGlobal->hasTypeNode()
+                        ? describeTypeNode(nestedGlobal->getTypeNode(), "void")
+                        : std::string(),
+                    nestedGlobal->loc);
             }
         }
     }
@@ -4037,8 +4049,7 @@ class SymbolCollector {
     void collectTraitImpl(AstTraitImplDecl *decl,
                           const std::string &ownerPrefix = std::string()) {
         auto header = describeTraitImplHeader(decl);
-        auto qualified =
-            ownerPrefix.empty() ? header : ownerPrefix + header;
+        auto qualified = ownerPrefix.empty() ? header : ownerPrefix + header;
         append(SymbolKind::Impl, header, qualified, "", decl->loc);
         collectOwnedBody(qualified, decl->body);
     }
@@ -4153,7 +4164,8 @@ printSymbolLine(std::ostream &out, const SymbolRecord &symbol) {
 }
 
 Json
-diagnosticJson(const DiagnosticError &diagnostic, const DiagnosticEngine &engine,
+diagnosticJson(const DiagnosticError &diagnostic,
+               const DiagnosticEngine &engine,
                const std::string &fallbackPath) {
     Json root = Json::object();
     root["category"] = diagnosticCategoryKeyword(diagnostic.category());
@@ -4194,7 +4206,8 @@ moduleBelongsToEntrySet(const ModuleGraph &moduleGraph,
                         const std::vector<std::string> &entryPaths,
                         const std::string &path) {
     for (const auto &entryPath : entryPaths) {
-        const auto reachablePaths = moduleGraph.postOrderFrom(string(entryPath));
+        const auto reachablePaths =
+            moduleGraph.postOrderFrom(string(entryPath));
         if (std::find(reachablePaths.begin(), reachablePaths.end(),
                       string(path)) != reachablePaths.end()) {
             return true;
@@ -4257,7 +4270,8 @@ moduleDisplayPath(const CompilationUnit &unit) {
 std::string
 importAliasForPath(std::string_view importPath) {
     namespace fs = std::filesystem;
-    auto alias = fs::path(std::string(trimCopy(importPath))).filename().string();
+    auto alias =
+        fs::path(std::string(trimCopy(importPath))).filename().string();
     if (!alias.empty()) {
         return alias;
     }
@@ -4290,7 +4304,8 @@ bridgeDiagnosticKindLabel(const DiagnosticError &diagnostic) {
 void
 clearResolvedTypeCachesForAnalysis(CompilerWorkspace &workspace,
                                    CompilationUnit &unit) {
-    for (const auto &path : workspace.moduleGraph().postOrderFrom(unit.path())) {
+    for (const auto &path :
+         workspace.moduleGraph().postOrderFrom(unit.path())) {
         auto *loadedUnit = workspace.moduleGraph().find(path);
         if (!loadedUnit) {
             continue;
@@ -4342,7 +4357,8 @@ analyzeUnitSemantics(WorkspaceLoader &loader, CompilerWorkspace &workspace,
             return result;
         }
         auto hirIndex = std::size_t{0};
-        for (const auto &resolvedFunction : result.resolvedModule->functions()) {
+        for (const auto &resolvedFunction :
+             result.resolvedModule->functions()) {
             HIRFunc *hir = nullptr;
             if (!resolvedFunction->isTemplateValidationOnly()) {
                 if (hirIndex >= result.analyzedModule->getFunctions().size()) {
@@ -4452,7 +4468,8 @@ Session::rebuildProject() {
                 try {
                     invalidateModuleAndDependents(entryPath);
                     entryUnit = &loader_.loadEntryUnit(entryPath);
-                    loader_.loadTransitiveUnitsFrom(toStdString(entryUnit->path()));
+                    loader_.loadTransitiveUnitsFrom(
+                        toStdString(entryUnit->path()));
                 } catch (const DiagnosticLimitReached &) {
                     break;
                 } catch (const DiagnosticError &error) {
@@ -4461,7 +4478,8 @@ Session::rebuildProject() {
                 if (entryUnit &&
                     !containsPath(refreshedEntryPaths,
                                   toStdString(entryUnit->path()))) {
-                    refreshedEntryPaths.push_back(toStdString(entryUnit->path()));
+                    refreshedEntryPaths.push_back(
+                        toStdString(entryUnit->path()));
                 }
             }
             collectLoadedSemanticDiagnostics();
@@ -4618,7 +4636,8 @@ Session::gotoModule(const std::string &path, std::string *errorMessage) {
             }
             currentPath_ = resolvedPath;
             const auto rebuilt = rebuildProject();
-            if (!rebuilt && errorMessage && !diagnostics_.diagnostics().empty()) {
+            if (!rebuilt && errorMessage &&
+                !diagnostics_.diagnostics().empty()) {
                 *errorMessage = diagnostics_.diagnostics().front().what();
             }
             return rebuilt;
@@ -4763,8 +4782,9 @@ Session::collectLoadedSemanticDiagnostics() {
 
 std::vector<DiagnosticError>
 Session::activeImportBridgeDiagnostics() const {
-    if (!currentSourceIsFile_ || diagnostics_.full() || currentUnit_ == nullptr ||
-        syntaxTree_ == nullptr || diagnostics_.diagnostics().empty()) {
+    if (!currentSourceIsFile_ || diagnostics_.full() ||
+        currentUnit_ == nullptr || syntaxTree_ == nullptr ||
+        diagnostics_.diagnostics().empty()) {
         return {};
     }
 
@@ -4824,13 +4844,15 @@ Session::activeImportBridgeDiagnostics() const {
                       " errors";
         } else {
             message = "imported module `" + toStdString(importNode->path) +
-                      "` depends on `" + matchedModuleName + "`, which contains " +
+                      "` depends on `" + matchedModuleName +
+                      "`, which contains " +
                       bridgeDiagnosticKindLabel(*matched) + " errors";
         }
-        auto bridge = DiagnosticError(
-            bridgeDiagnosticCategory(*matched), importNode->loc, std::move(message),
-            "See `" + matchedModuleName +
-                "` for the original diagnostic location.");
+        auto bridge =
+            DiagnosticError(bridgeDiagnosticCategory(*matched), importNode->loc,
+                            std::move(message),
+                            "See `" + matchedModuleName +
+                                "` for the original diagnostic location.");
 
         bool duplicate = false;
         for (const auto &existing : diagnostics_.diagnostics()) {
@@ -4866,8 +4888,7 @@ Session::visibleDiagnostics() const {
         return visible;
     }
     auto bridges = activeImportBridgeDiagnostics();
-    visible.insert(visible.end(),
-                   std::make_move_iterator(bridges.begin()),
+    visible.insert(visible.end(), std::make_move_iterator(bridges.begin()),
                    std::make_move_iterator(bridges.end()));
     return visible;
 }
@@ -5073,8 +5094,8 @@ Session::printItemJson(std::string_view fieldName, PrintQueryKind kind) const {
 
     const auto query = trimCopy(fieldName);
     if (query.empty()) {
-        root["error"] = std::string("empty ") + printQueryKindKeyword(kind) +
-                        " query";
+        root["error"] =
+            std::string("empty ") + printQueryKindKeyword(kind) + " query";
         return root;
     }
 
@@ -5088,9 +5109,9 @@ Session::printItemJson(std::string_view fieldName, PrintQueryKind kind) const {
             return root;
         }
 
-        if (lookupTopLevelVarPrintItem(currentUnit_, syntaxTree_,
-                                       analyzedFunctions_, analyzedModule_.get(),
-                                       currentPath_, query, printItem)) {
+        if (lookupTopLevelVarPrintItem(
+                currentUnit_, syntaxTree_, analyzedFunctions_,
+                analyzedModule_.get(), currentPath_, query, printItem)) {
             root["found"] = true;
             root["item"] = std::move(printItem);
             return root;
@@ -5319,7 +5340,8 @@ Session::printItem(std::ostream &out, std::string_view fieldName,
         return;
     }
     if (itemKind == "local" || itemKind == "param" || itemKind == "self") {
-        out << itemKind << ' ' << item["qualifiedName"].get<std::string>() << '\n';
+        out << itemKind << ' ' << item["qualifiedName"].get<std::string>()
+            << '\n';
         if (!item["detail"].get<std::string>().empty()) {
             out << "detail: " << item["detail"].get<std::string>() << '\n';
         }
@@ -5363,17 +5385,15 @@ Session::printInfoLocal(std::ostream &out, int line) const {
 
     for (const auto &item : root["items"]) {
         printLocalSymbolLine(
-            out,
-            LocalSymbolRecord{
-                item["kind"].get<std::string>(),
-                item["name"].get<std::string>(),
-                item["detail"].get<std::string>(),
-                item["type"].get<std::string>(),
-                SourceLocation{
-                    item["location"]["path"].get<std::string>(),
-                    item["location"]["line"].get<int>(),
-                    item["location"]["column"].get<int>()},
-                item["scopeDepth"].get<int>()});
+            out, LocalSymbolRecord{
+                     item["kind"].get<std::string>(),
+                     item["name"].get<std::string>(),
+                     item["detail"].get<std::string>(),
+                     item["type"].get<std::string>(),
+                     SourceLocation{item["location"]["path"].get<std::string>(),
+                                    item["location"]["line"].get<int>(),
+                                    item["location"]["column"].get<int>()},
+                     item["scopeDepth"].get<int>()});
     }
 }
 

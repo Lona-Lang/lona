@@ -53,6 +53,19 @@ trait Hash {
 
 trait 的完整规则见 [trait.md](trait.md)。
 
+## 5.1 顶层可以放 `extend` 声明
+
+```lona
+extend i32 {
+    var def squared() i32 {
+        ret self * self
+    }
+}
+```
+
+`extend` 创建实例方法 receiver scope，不是类型静态命名空间。完整规则见
+[struct.md](struct.md)。
+
 ## 6. 顶层可以放 impl 声明
 
 ```lona

@@ -117,3 +117,11 @@ def abs(v i32) i32 {
 - `def name(...) Ret` 这一行如果已经以换行结束，就表示函数声明；它只声明签名，不提供函数体。
 - 这种 bodyless `def` 可以用于模块接口或外部符号声明；如果当前编译单元里没有对应定义，最终是否能链接成功取决于链接阶段能否找到同名符号。
 - 因此如果要写函数体，开块 `{` 必须和函数头写在同一行；`def add(a i32, b i32) i32` 下一行再写 `{` 当前不会被当成同一个函数体头。
+
+## 7. 顶层函数与实例方法
+
+顶层 `def` 是模块函数，没有 `self`。`set def` 和 `var def` 只能出现在
+`struct`、trait/impl 或 `extend Type` 提供的 receiver scope 中。
+
+Lona 不把静态方法放进类型命名空间；不依赖实例的操作继续声明为顶层函数。
+实例方法的三种 receiver mode 与 `extend` 语法见 [struct.md](struct.md)。

@@ -579,11 +579,12 @@ native 顶层函数 / 全局 / 类型，默认基于 canonical module path 导�
 | 顶层 non-extern global | `GlobalDecl.symbolName` | 规范导出名为 `<export-namespace>.<local>` | 依赖导出模式下使用这条规则 |
 | 顶层 `extern` global | 顶层全局 | 直接用源码 local name | 不加模块前缀 |
 | 顶层 global，非导出模式 | 顶层全局 | 当前 materialization 可用裸 `<local>` | 接口里仍保留 canonical `symbolName` |
-| 非 generic struct inherent method | `StructType.full_name` + method local name | `<SelfTypeFullName>.<method>` | 例如 `string.result.Point.hash` |
-| concrete applied struct 的非 generic inherent method | concrete applied `StructType.full_name` | `<mangle(SelfTypeFullName)>.<method>` | 避免 `[]`、`.` 等进入符号名 |
-| trait impl method | concrete self type + trait exported name + method local name | `<SelfTypeFullName>.__trait__.<mangle(TraitExportedName)>.<method>` | generic / non-generic concrete impl 最终都收敛到这条规则 |
+| 非 generic struct inherent method | `StructType.full_name` + method local name + receiver mode | `<SelfTypeFullName>.<method>.__receiver_<get\|set\|var>` | 例如 `string.result.Point.hash.__receiver_get` |
+| concrete applied struct 的非 generic inherent method | concrete applied `StructType.full_name` + receiver mode | `<mangle(SelfTypeFullName)>.<method>.__receiver_<mode>` | 避免 `[]`、`.` 等进入符号名 |
+| trait impl method | concrete self type + trait exported name + method local name + receiver mode | `<SelfTypeFullName>.__trait__.<mangle(TraitExportedName)>.<method>.__receiver_<mode>` | generic / non-generic concrete impl 最终都收敛到这条规则 |
+| extension method | defining module + canonical target + method + receiver mode | `<module>.<mangle(target)>.__extend__.<get\|set\|var>.<method>` | extension 不占用 target owner 的 inherent symbol namespace |
 | generic function concrete instance | generic function declaration | `<base>__inst__<__mangle(typeArg1)>...` | `base` 来自函数当前 runtime name |
-| generic struct method concrete instance | concrete self type + method + method type args | `<mangle(SelfTypeFullName)>.<method>[__inst__<__mangle(typeArg)>...]` | method 无额外 type arg 时没有 `__inst` 后缀 |
+| generic struct method concrete instance | concrete self type + method + receiver mode + method type args | `<mangle(SelfTypeFullName)>.<method>.__receiver_<mode>[__inst__<__mangle(typeArg)>...]` | method 无额外 type arg 时没有 `__inst` 后缀 |
 | trait witness table | `(Trait, ConcreteSelf)` | `__lona_trait_witness__<mangle(traitName)>__<mangle(selfTypeName)>` | `InternalLinkage` |
 | 语言入口 | root language entry | `__lona_main__` | 语言级固定入口 |
 | 模块 init entry | module key | `__<mangle(moduleKey)>_init_entry__` | 合成函数 |
@@ -639,6 +640,9 @@ trait impl method 的 runtime symbol 不是裸的 `Type.method`，而是：
 SelfType.__trait__.<mangled trait name>.method
 ```
 
+实际符号还会追加 `.__receiver_get`、`.__receiver_set` 或
+`.__receiver_var`，receiver mode 不依赖参数 pointee 反推。
+
 这条规则让下面两项可以共存：
 
 - `Point.hash` 这个 inherent method
@@ -659,7 +663,7 @@ __lona_trait_witness__<mangled trait>__<mangled self>
 generic function / method 的 runtime symbol 当前通常形如：
 
 - `baseSymbol__inst__<type-args...>`
-- `mangle(selfType).method__inst__<type-args...>`
+- `mangle(selfType).method.__receiver_<mode>__inst__<type-args...>`
 
 但这只是发射名，不是 dedup identity。
 

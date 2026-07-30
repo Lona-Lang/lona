@@ -29,7 +29,9 @@ using declarationsupport_impl::describeStructFieldSyntax;
 using declarationsupport_impl::extractParamBindingKinds;
 using declarationsupport_impl::extractParamNames;
 using declarationsupport_impl::insertStructMember;
-using declarationsupport_impl::interfaceMethodReceiverPointeeType;
+using declarationsupport_impl::interfaceExtensionReceiverType;
+using declarationsupport_impl::interfaceMethodReceiverType;
+using declarationsupport_impl::methodReceiverType;
 using declarationsupport_impl::recordTopLevelDeclName;
 using declarationsupport_impl::rejectBareFunctionType;
 using declarationsupport_impl::rejectOpaqueStructByValue;
@@ -37,8 +39,9 @@ using declarationsupport_impl::requireTypeTable;
 using declarationsupport_impl::resolveExtensionMethodSymbolName;
 using declarationsupport_impl::TopLevelDeclKind;
 using declarationsupport_impl::validateEmbeddedStructField;
-using declarationsupport_impl::validateExternCType;
+using declarationsupport_impl::validateExtensionTargetShape;
 using declarationsupport_impl::validateExternCFunctionSignature;
+using declarationsupport_impl::validateExternCType;
 using declarationsupport_impl::validateFunctionReceiverAccess;
 using declarationsupport_impl::validateStructDeclShape;
 using declarationsupport_impl::validateStructFieldType;
@@ -116,7 +119,11 @@ class InterfaceCollector {
     std::vector<AstTraitDecl *> traitDecls_;
     std::vector<AstTraitImplDecl *> traitImplDecls_;
     std::vector<AstFuncDecl *> funcDecls_;
-    std::vector<AstFuncDecl *> extensionDecls_;
+    struct ExtensionSyntaxDecl {
+        AstExtendDecl *owner = nullptr;
+        AstFuncDecl *method = nullptr;
+    };
+    std::vector<ExtensionSyntaxDecl> extensionDecls_;
     std::vector<AstGlobalDecl *> globalDecls_;
     std::unordered_set<std::string> materializingAppliedStructs_;
     enum class StructCompletionState {
@@ -211,10 +218,10 @@ class InterfaceCollector {
                        : nullptr;
         }
 
-        TypeClass *receiverPointeeType(
-            StructType *structType, AccessKind receiverAccess) const override {
-            return interfaceMethodReceiverPointeeType(
-                collector.interface_, structType, receiverAccess);
+        TypeClass *receiverType(StructType *structType,
+                                ReceiverMode receiverMode) const override {
+            return interfaceMethodReceiverType(collector.interface_, structType,
+                                               receiverMode);
         }
 
         FuncType *createMethodFunctionType(
@@ -258,12 +265,9 @@ class InterfaceCollector {
         bool isGeneric() const { return !typeParams.empty(); }
     };
 
-    struct CollectedExtensionReceiver {
-        ExtensionReceiverKind kind = ExtensionReceiverKind::Value;
-        TypeClass *receiverType = nullptr;
-        TypeClass *baseType = nullptr;
-        string receiverTypeSpelling;
-        string baseTypeSpelling;
+    struct CollectedExtensionTarget {
+        TypeClass *type = nullptr;
+        string typeSpelling;
     };
 
     enum class GenericParamContext {
@@ -274,13 +278,12 @@ class InterfaceCollector {
 
     static bool isBuiltinScalarExtensionBase(TypeClass *type) {
         auto *storageType = stripTopLevelConst(type);
-        return storageType &&
-               (storageType == u8Ty || storageType == i8Ty ||
-                storageType == u16Ty || storageType == i16Ty ||
-                storageType == u32Ty || storageType == i32Ty ||
-                storageType == u64Ty || storageType == i64Ty ||
-                storageType == usizeTy || storageType == f32Ty ||
-                storageType == f64Ty || storageType == boolTy);
+        return storageType && (storageType == u8Ty || storageType == i8Ty ||
+                               storageType == u16Ty || storageType == i16Ty ||
+                               storageType == u32Ty || storageType == i32Ty ||
+                               storageType == u64Ty || storageType == i64Ty ||
+                               storageType == usizeTy || storageType == f32Ty ||
+                               storageType == f64Ty || storageType == boolTy);
     }
 
     std::vector<ModuleInterface::GenericParamDecl> collectGenericParams(
@@ -832,8 +835,14 @@ class InterfaceCollector {
             return;
         }
         if (auto *dynType = dynamic_cast<DynTypeNode *>(node)) {
-            validateGenericTypeNode(dynType->base, params, loc, context);
-            return;
+            (void)dynType;
+            if (resolveType(node, false)) {
+                return;
+            }
+            error(loc,
+                  "unknown trait object type for " + context + ": " +
+                      describeTypeNode(node, "void"),
+                  "The base of a `dyn` type must name a visible trait.");
         }
         if (auto *pointer = dynamic_cast<PointerTypeNode *>(node)) {
             validateGenericTypeNode(pointer->base, params, loc, context);
@@ -969,8 +978,8 @@ class InterfaceCollector {
                                               subject, true);
             return;
         }
-        if (auto *indexable = dynamic_cast<IndexablePointerTypeNode *>(
-                typeNode)) {
+        if (auto *indexable =
+                dynamic_cast<IndexablePointerTypeNode *>(typeNode)) {
             validateExternCGenericPointerLeaf(node, indexable->base, params,
                                               subject, true);
             return;
@@ -1055,8 +1064,7 @@ class InterfaceCollector {
                 if (varDecl->bindingKind == BindingKind::Ref) {
                     error(varDecl->loc,
                           "#[extern \"C\"] generic function `" + funcName +
-                              "` parameter `" +
-                              toStdString(varDecl->field) +
+                              "` parameter `" + toStdString(varDecl->field) +
                               "` cannot use `ref` binding",
                           "Use an explicit pointer type like `i32*` instead.");
                 }
@@ -1073,8 +1081,8 @@ class InterfaceCollector {
                     "parameter `" + toStdString(varDecl->field) +
                         "` in function `" + funcName + "`");
                 validateExternCType(node, methodParent, "parameter",
-                                    toStdString(varDecl->field),
-                                    type, varDecl->typeNode, varDecl->loc);
+                                    toStdString(varDecl->field), type,
+                                    varDecl->typeNode, varDecl->loc);
             }
         }
         if (!node->retType) {
@@ -1083,14 +1091,12 @@ class InterfaceCollector {
         if (containsGenericTypeParamReference(node->retType,
                                               genericParamNames)) {
             validateExternCGenericPointerLeaf(node, node->retType,
-                                              genericParamNames,
-                                              "return type");
+                                              genericParamNames, "return type");
             return;
         }
         auto *retType = resolveType(node->retType, false);
         rejectOpaqueStructByValue(retType, node->retType, node->loc,
-                                  "return type of function `" + funcName +
-                                      "`");
+                                  "return type of function `" + funcName + "`");
         validateExternCType(node, methodParent, "return type", std::string(),
                             retType, node->retType, node->loc);
     }
@@ -1157,6 +1163,33 @@ class InterfaceCollector {
 
     TypeClass *resolveType(TypeNode *node, bool validateLayout = true) {
         return resolveType(node, unit_, validateLayout);
+    }
+
+    TypeClass *resolveReceiverSignatureType(TypeNode *node,
+                                            TypeClass *receiverType) {
+        return resolveReceiverSignatureType(node, receiverType, unit_);
+    }
+
+    TypeClass *resolveReceiverSignatureType(TypeNode *node,
+                                            TypeClass *receiverType,
+                                            const CompilationUnit &lookupUnit) {
+        if (!receiverType) {
+            return resolveType(node);
+        }
+        std::unordered_map<std::string, TypeClass *> substitutions{
+            {"Self", receiverType}};
+        return substituteAppliedStructTemplateType(
+            node, substitutions, node ? node->loc : location(),
+            "method signature type", lookupUnit);
+    }
+
+    TypeClass *resolveTraitSignatureType(
+        TypeNode *node, TypeClass *selfType,
+        const ModuleInterface::TraitDecl &traitDecl) {
+        auto *ownerUnit =
+            unit_.contextUnitForInterface(traitDecl.ownerInterface);
+        return resolveReceiverSignatureType(node, selfType,
+                                            ownerUnit ? *ownerUnit : unit_);
     }
 
     static std::string describeResolvedTypeName(TypeClass *type) {
@@ -1238,15 +1271,6 @@ class InterfaceCollector {
                       "generic methods are not supported in trait impl body " +
                           describeTraitImplContext(traitRef, selfRef),
                       "Keep trait impl methods monomorphic for now.");
-            }
-            if (funcDecl->hasExtensionReceiver()) {
-                error(funcDecl->loc,
-                      "extension methods must be declared at top level",
-                      "Move `def " +
-                          describeTypeNode(funcDecl->extensionReceiverType(),
-                                           "void") +
-                          "." + toStdString(funcDecl->name) +
-                          "(...)` out of this trait impl body.");
             }
             if (!funcDecl->hasBody()) {
                 error(funcDecl->loc,
@@ -1401,31 +1425,6 @@ class InterfaceCollector {
                 concreteMethodValidation};
     }
 
-    static AccessKind inferMethodReceiverAccess(StructType *selfType,
-                                                FuncType *methodType,
-                                                const location &loc,
-                                                llvm::StringRef methodName) {
-        if (!selfType || !methodType || methodType->getArgTypes().empty()) {
-            internalError(loc,
-                          "trait impl validation is missing the implicit self "
-                          "parameter for method `" +
-                              methodName.str() + "`",
-                          "This looks like a method interface bug.");
-        }
-        auto *selfPointeeType =
-            getRawPointerPointeeType(methodType->getArgTypes().front());
-        if (!selfPointeeType ||
-            asUnqualified<StructType>(selfPointeeType) != selfType) {
-            internalError(loc,
-                          "trait impl validation found an invalid self "
-                          "parameter for method `" +
-                              methodName.str() + "`",
-                          "This looks like a method interface bug.");
-        }
-        return selfPointeeType == selfType ? AccessKind::GetSet
-                                           : AccessKind::GetOnly;
-    }
-
     void validateTraitMethodMatch(
         const ModuleInterface::TraitDecl &traitDecl,
         const ModuleInterface::TraitMethodDecl &method, StructType *selfType,
@@ -1444,14 +1443,19 @@ class InterfaceCollector {
                       toStdString(traitDecl.exportedName) + "`.");
         }
 
-        auto actualReceiverAccess = inferMethodReceiverAccess(
-            selfType, methodType, implLoc, toStringRef(method.localName));
-        if (actualReceiverAccess != method.receiverAccess) {
+        auto actualReceiverMode =
+            selfType->getMethodReceiverMode(toStringRef(method.localName));
+        if (!actualReceiverMode) {
+            internalError(implLoc,
+                          "trait impl method is missing receiver mode metadata",
+                          "This looks like a method interface bug.");
+        }
+        if (*actualReceiverMode != method.receiverMode) {
             error(implLoc,
-                  "impl " + implLabel + " has receiver access mismatch for `" +
+                  "impl " + implLabel + " has receiver mode mismatch for `" +
                       toStdString(method.localName) + "`",
                   "Trait `" + toStdString(traitDecl.exportedName) +
-                      "` expects `" + accessKindKeyword(method.receiverAccess) +
+                      "` expects `" + receiverModeKeyword(method.receiverMode) +
                       " def " + toStdString(method.localName) + "`.");
         }
 
@@ -1483,25 +1487,32 @@ class InterfaceCollector {
 
             const auto actualTypeName =
                 describeResolvedTypeName(argTypes[i + 1]);
-            if (actualTypeName != method.paramTypeSpellings[i]) {
+            auto *expectedType = resolveTraitSignatureType(
+                method.paramTypeNodes[i], selfType, traitDecl);
+            const auto expectedTypeName =
+                describeResolvedTypeName(expectedType);
+            if (actualTypeName != expectedTypeName) {
                 error(implLoc,
                       "impl " + implLabel +
                           " has parameter type mismatch for `" +
                           toStdString(method.localName) + "` at index " +
                           std::to_string(i) + ": expected `" +
-                          toStdString(method.paramTypeSpellings[i]) +
-                          "`, got `" + actualTypeName + "`",
+                          expectedTypeName + "`, got `" + actualTypeName + "`",
                       "Match the trait method parameter types exactly.");
             }
         }
 
         const auto actualReturnTypeName =
             describeResolvedTypeName(methodType->getRetType());
-        if (actualReturnTypeName != method.returnTypeSpelling) {
+        auto *expectedReturnType = resolveTraitSignatureType(
+            method.returnTypeNode, selfType, traitDecl);
+        const auto expectedReturnTypeName =
+            describeResolvedTypeName(expectedReturnType);
+        if (actualReturnTypeName != expectedReturnTypeName) {
             error(implLoc,
                   "impl " + implLabel + " has return type mismatch for `" +
                       toStdString(method.localName) + "`: expected `" +
-                      toStdString(method.returnTypeSpelling) + "`, got `" +
+                      expectedReturnTypeName + "`, got `" +
                       actualReturnTypeName + "`",
                   "Match the trait method return type exactly.");
         }
@@ -1514,12 +1525,12 @@ class InterfaceCollector {
         const ResolvedSelfTypeRef &selfRef, const location &implLoc) {
         const auto implLabel = "`" + toStdString(selfRef.resolvedName) + ": " +
                                toStdString(traitDecl.exportedName) + "`";
-        if (bodyMethod.receiverAccess != method.receiverAccess) {
+        if (bodyMethod.receiverMode != method.receiverMode) {
             error(implLoc,
-                  "impl " + implLabel + " has receiver access mismatch for `" +
+                  "impl " + implLabel + " has receiver mode mismatch for `" +
                       toStdString(method.localName) + "`",
                   "Trait `" + toStdString(traitDecl.exportedName) +
-                      "` expects `" + accessKindKeyword(method.receiverAccess) +
+                      "` expects `" + receiverModeKeyword(method.receiverMode) +
                       " def " + toStdString(method.localName) + "`.");
         }
 
@@ -1548,24 +1559,30 @@ class InterfaceCollector {
                           "` at that position.");
             }
 
-            if (bodyMethod.paramTypeSpellings[i] !=
-                method.paramTypeSpellings[i]) {
-                error(
-                    implLoc,
-                    "impl " + implLabel + " has parameter type mismatch for `" +
-                        toStdString(method.localName) + "` at index " +
-                        std::to_string(i) + ": expected `" +
-                        toStdString(method.paramTypeSpellings[i]) + "`, got `" +
-                        toStdString(bodyMethod.paramTypeSpellings[i]) + "`",
-                    "Match the trait method parameter types exactly.");
+            auto *expectedType = resolveTraitSignatureType(
+                method.paramTypeNodes[i], selfRef.structType, traitDecl);
+            auto expectedTypeName = describeResolvedTypeName(expectedType);
+            if (bodyMethod.paramTypeSpellings[i] != expectedTypeName) {
+                error(implLoc,
+                      "impl " + implLabel +
+                          " has parameter type mismatch for `" +
+                          toStdString(method.localName) + "` at index " +
+                          std::to_string(i) + ": expected `" +
+                          expectedTypeName + "`, got `" +
+                          toStdString(bodyMethod.paramTypeSpellings[i]) + "`",
+                      "Match the trait method parameter types exactly.");
             }
         }
 
-        if (bodyMethod.returnTypeSpelling != method.returnTypeSpelling) {
+        auto *expectedReturnType = resolveTraitSignatureType(
+            method.returnTypeNode, selfRef.structType, traitDecl);
+        auto expectedReturnTypeName =
+            describeResolvedTypeName(expectedReturnType);
+        if (bodyMethod.returnTypeSpelling != expectedReturnTypeName) {
             error(implLoc,
                   "impl " + implLabel + " has return type mismatch for `" +
                       toStdString(method.localName) + "`: expected `" +
-                      toStdString(method.returnTypeSpelling) + "`, got `" +
+                      expectedReturnTypeName + "`, got `" +
                       toStdString(bodyMethod.returnTypeSpelling) + "`",
                   "Match the trait method return type exactly.");
         }
@@ -1670,10 +1687,12 @@ class InterfaceCollector {
 
             ModuleInterface::TraitMethodDecl method;
             method.localName = funcDecl->name;
-            method.receiverAccess = funcDecl->receiverAccess;
+            method.receiverMode = funcDecl->receiverMode;
             method.paramNames = extractParamNames(funcDecl);
             method.paramBindingKinds = extractParamBindingKinds(funcDecl);
+            const std::unordered_set<std::string> selfTypeName{"Self"};
             if (funcDecl->args) {
+                method.paramTypeNodes.reserve(funcDecl->args->size());
                 method.paramTypeSpellings.reserve(funcDecl->args->size());
                 for (auto *arg : *funcDecl->args) {
                     auto *varDecl = dynamic_cast<AstVarDecl *>(arg);
@@ -1683,7 +1702,22 @@ class InterfaceCollector {
                               "`" +
                                   toStdString(funcDecl->name) + "`");
                     }
-                    auto *paramType = resolveType(varDecl->typeNode);
+                    method.paramTypeNodes.push_back(varDecl->typeNode);
+                    validateGenericTypeNode(
+                        varDecl->typeNode, selfTypeName, varDecl->loc,
+                        "trait method parameter `" +
+                            toStdString(varDecl->field) + "` in `" +
+                            toStdString(funcDecl->name) + "`");
+                    const bool hasSelfType = containsGenericTypeParamReference(
+                        varDecl->typeNode, selfTypeName);
+                    method.hasSelfType = method.hasSelfType || hasSelfType;
+                    auto *paramType =
+                        hasSelfType ? nullptr : resolveType(varDecl->typeNode);
+                    if (hasSelfType) {
+                        method.paramTypeSpellings.push_back(
+                            describeTypeNode(varDecl->typeNode, "void"));
+                        continue;
+                    }
                     if (!paramType) {
                         error(varDecl->loc,
                               "unknown type for trait method parameter `" +
@@ -1706,7 +1740,22 @@ class InterfaceCollector {
                 }
             }
             if (funcDecl->retType) {
-                auto *retType = resolveType(funcDecl->retType);
+                method.returnTypeNode = funcDecl->retType;
+                validateGenericTypeNode(
+                    funcDecl->retType, selfTypeName, funcDecl->loc,
+                    "trait method `" + toStdString(funcDecl->name) +
+                        "` return type");
+                const bool hasSelfType = containsGenericTypeParamReference(
+                    funcDecl->retType, selfTypeName);
+                method.hasSelfType = method.hasSelfType || hasSelfType;
+                auto *retType =
+                    hasSelfType ? nullptr : resolveType(funcDecl->retType);
+                if (hasSelfType) {
+                    method.returnTypeSpelling =
+                        describeTypeNode(funcDecl->retType, "void");
+                    methods.push_back(std::move(method));
+                    continue;
+                }
                 if (!retType) {
                     error(funcDecl->loc,
                           "unknown return type for trait method `" +
@@ -1724,6 +1773,7 @@ class InterfaceCollector {
                         toStdString(funcDecl->name) + "`");
                 method.returnTypeSpelling = retType->full_name;
             } else {
+                method.returnTypeNode = nullptr;
                 method.returnTypeSpelling = "void";
             }
             methods.push_back(std::move(method));
@@ -1767,14 +1817,35 @@ class InterfaceCollector {
                            dynamic_cast<AstTraitImplDecl *>(stmt)) {
                 traitImplDecls_.push_back(traitImplDecl);
             } else if (auto *funcDecl = dynamic_cast<AstFuncDecl *>(stmt)) {
-                if (funcDecl->hasExtensionReceiver()) {
-                    extensionDecls_.push_back(funcDecl);
-                } else {
-                    validateImportAliasConflict(funcDecl);
-                    recordTopLevelDeclName(
-                        topLevelDecls_, toStdString(funcDecl->name),
-                        TopLevelDeclKind::Function, funcDecl->loc);
-                    funcDecls_.push_back(funcDecl);
+                validateImportAliasConflict(funcDecl);
+                recordTopLevelDeclName(
+                    topLevelDecls_, toStdString(funcDecl->name),
+                    TopLevelDeclKind::Function, funcDecl->loc);
+                funcDecls_.push_back(funcDecl);
+            } else if (auto *extendDecl = dynamic_cast<AstExtendDecl *>(stmt)) {
+                auto *extendBody = extendDecl->body
+                                       ? extendDecl->body->as<AstStatList>()
+                                       : nullptr;
+                if (!extendBody) {
+                    error(extendDecl->loc,
+                          "extend declaration is missing its method body",
+                          "Write `extend Type { ... }`.");
+                }
+                for (auto *entry : extendBody->getBody()) {
+                    auto *method = entry ? entry->as<AstFuncDecl>() : nullptr;
+                    if (!method) {
+                        error(entry ? entry->loc : extendDecl->loc,
+                              "extend blocks can only contain instance methods",
+                              "Keep only `def`, `set def`, or `var def` "
+                              "declarations inside this block.");
+                    }
+                    if (!method->hasBody()) {
+                        error(method->loc,
+                              "extension method `" + toStdString(method->name) +
+                                  "` must have a body",
+                              "Define the method inside this `extend` block.");
+                    }
+                    extensionDecls_.push_back({extendDecl, method});
                 }
             } else if (auto *globalDecl = dynamic_cast<AstGlobalDecl *>(stmt)) {
                 validateImportAliasConflict(globalDecl);
@@ -2151,127 +2222,51 @@ class InterfaceCollector {
         }
     }
 
-    CollectedExtensionReceiver collectExtensionReceiver(AstFuncDecl *node) {
-        CollectedExtensionReceiver collected;
-        if (!node || !node->hasExtensionReceiver()) {
+    CollectedExtensionTarget collectExtensionTarget(AstExtendDecl *node) {
+        CollectedExtensionTarget collected;
+        if (!node || !node->targetType) {
             return collected;
         }
 
-        if (node->receiverAccess != AccessKind::GetOnly) {
+        validateExtensionTargetShape(node);
+        validateGenericTypeNode(node->targetType, {}, node->loc,
+                                "extend target type");
+        auto *targetType = resolveType(node->targetType);
+        if (!targetType) {
             error(node->loc,
-                  "`set def` is not valid on extension methods",
-                  "Use `def (T*).name(...)` for writable borrowed receivers.");
+                  "unknown extend target type: " +
+                      describeTypeNode(node->targetType, "void"),
+                  "Declare or import the target type before this `extend` "
+                  "block.");
+        }
+        if (!isBuiltinScalarExtensionBase(targetType) &&
+            !asUnqualified<StructType>(targetType)) {
+            error(node->loc,
+                  "unsupported extend target `" +
+                      describeTypeNode(node->targetType, "void") + "`",
+                  "`extend` currently supports concrete structs and builtin "
+                  "scalar types.");
         }
 
-        auto *receiverTypeNode = node->extensionReceiverType();
-        validateGenericTypeNode(
-            receiverTypeNode, {}, node->loc,
-            "extension receiver of `" + toStdString(node->name) + "`");
-        auto *receiverType = resolveType(receiverTypeNode);
-        if (!receiverType) {
-            error(node->loc,
-                  "unknown extension receiver type for `" +
-                      toStdString(node->name) + "`: " +
-                      describeTypeNode(receiverTypeNode, "void"));
-        }
-
-        if (auto *pointerNode = dynamic_cast<PointerTypeNode *>(
-                receiverTypeNode)) {
-            if (pointerNode->dim != 1) {
-                error(node->loc,
-                      "extension receiver `" +
-                          describeTypeNode(receiverTypeNode, "void") +
-                          "` is not supported",
-                      "Borrowed extension receivers must use a single "
-                      "pointer like `(T const*)` or `(T*)`.");
-            }
-            auto *baseNode = pointerNode->base;
-            if (dynamic_cast<PointerTypeNode *>(baseNode) ||
-                dynamic_cast<IndexablePointerTypeNode *>(baseNode) ||
-                dynamic_cast<ArrayTypeNode *>(baseNode) ||
-                dynamic_cast<TupleTypeNode *>(baseNode) ||
-                dynamic_cast<FuncPtrTypeNode *>(baseNode) ||
-                dynamic_cast<DynTypeNode *>(baseNode)) {
-                error(node->loc,
-                      "extension receiver `" +
-                          describeTypeNode(receiverTypeNode, "void") +
-                          "` is not supported",
-                      "Borrowed extension receivers only support builtin "
-                      "scalar or concrete struct base types in v0.");
-            }
-            auto *baseType = resolveType(baseNode);
-            if (!baseType) {
-                error(node->loc,
-                      "unknown extension receiver base type for `" +
-                          toStdString(node->name) + "`: " +
-                          describeTypeNode(baseNode, "void"));
-            }
-            if (!isBuiltinScalarExtensionBase(baseType) &&
-                !stripTopLevelConst(baseType)->as<StructType>()) {
-                error(node->loc,
-                      "extension receiver `" +
-                          describeTypeNode(receiverTypeNode, "void") +
-                          "` is not supported",
-                      "Borrowed extension receivers only support builtin "
-                      "scalar or concrete struct base types in v0.");
-            }
-            auto *pointerType = asUnqualified<PointerType>(receiverType);
-            if (!pointerType) {
-                internalError(node->loc,
-                              "extension receiver pointer type did not "
-                              "resolve to a pointer",
-                              "This looks like an extension receiver type "
-                              "resolution bug.");
-            }
-            collected.kind = isConstQualifiedType(pointerType->getPointeeType())
-                                 ? ExtensionReceiverKind::BorrowedReadOnly
-                                 : ExtensionReceiverKind::BorrowedReadWrite;
-            collected.receiverType = receiverType;
-            collected.baseType = stripTopLevelConst(baseType);
-            collected.receiverTypeSpelling = receiverType->full_name;
-            collected.baseTypeSpelling =
-                collected.baseType ? collected.baseType->full_name : string();
-            return collected;
-        }
-
-        if (dynamic_cast<IndexablePointerTypeNode *>(receiverTypeNode) ||
-            dynamic_cast<ArrayTypeNode *>(receiverTypeNode) ||
-            dynamic_cast<TupleTypeNode *>(receiverTypeNode) ||
-            dynamic_cast<FuncPtrTypeNode *>(receiverTypeNode) ||
-            dynamic_cast<DynTypeNode *>(receiverTypeNode) ||
-            stripTopLevelConst(receiverType)->as<StructType>()) {
-            error(node->loc,
-                  "extension receiver `" +
-                      describeTypeNode(receiverTypeNode, "void") +
-                      "` is not supported",
-                  "Value receivers only support builtin scalar types in v0; "
-                  "composite types must use `(T const*)` or `(T*)`.");
-        }
-        if (!isBuiltinScalarExtensionBase(receiverType)) {
-            error(node->loc,
-                  "extension receiver `" +
-                      describeTypeNode(receiverTypeNode, "void") +
-                      "` is not supported",
-                  "Value receivers only support builtin scalar types in v0.");
-        }
-        collected.kind = ExtensionReceiverKind::Value;
-        collected.receiverType = receiverType;
-        collected.baseType = receiverType;
-        collected.receiverTypeSpelling = receiverType->full_name;
-        collected.baseTypeSpelling = receiverType->full_name;
+        collected.type = targetType;
+        collected.typeSpelling = targetType->full_name;
         return collected;
     }
 
     CollectedFunctionInterface collectFunctionInterface(
         AstFuncDecl *node, StructType *methodParent,
         const std::vector<ModuleInterface::GenericParamDecl> *scopedTypeParams =
-            nullptr) {
+            nullptr,
+        TypeClass *extensionTarget = nullptr) {
         CollectedFunctionInterface collected;
         collected.abiKind = node ? node->abiKind : AbiKind::Native;
-        validateFunctionReceiverAccess(node, methodParent);
+        if (!extensionTarget) {
+            validateFunctionReceiverAccess(node, methodParent);
+        }
+        const bool hasReceiver = methodParent || extensionTarget;
         collected.paramNames = extractParamNames(node);
         collected.paramBindingKinds =
-            extractParamBindingKinds(node, 0, methodParent != nullptr);
+            extractParamBindingKinds(node, 0, hasReceiver);
         if (scopedTypeParams) {
             collected.typeParams = *scopedTypeParams;
         }
@@ -2283,6 +2278,10 @@ class InterfaceCollector {
                                         ownTypeParams.end());
         }
         auto genericParamNames = collectGenericParamNames(collected.typeParams);
+        auto signatureTypeNames = genericParamNames;
+        if (hasReceiver) {
+            signatureTypeNames.emplace("Self");
+        }
 
         if (!genericParamNames.empty()) {
             validateExternCGenericFunctionSignature(node, methodParent,
@@ -2298,7 +2297,7 @@ class InterfaceCollector {
                                   toStdString(node->name) + "`");
                     }
                     validateGenericTypeNode(
-                        varDecl->typeNode, genericParamNames, varDecl->loc,
+                        varDecl->typeNode, signatureTypeNames, varDecl->loc,
                         "function parameter `" + toStdString(varDecl->field) +
                             "` in `" + toStdString(node->name) + "`");
                     collected.paramTypeNodes.push_back(varDecl->typeNode);
@@ -2308,7 +2307,7 @@ class InterfaceCollector {
             }
             if (node->retType) {
                 validateGenericTypeNode(
-                    node->retType, genericParamNames, node->loc,
+                    node->retType, signatureTypeNames, node->loc,
                     "function `" + toStdString(node->name) + "` return type");
                 collected.returnTypeNode = node->retType;
                 collected.returnTypeSpelling =
@@ -2319,9 +2318,11 @@ class InterfaceCollector {
 
         std::vector<TypeClass *> argTypes;
         if (methodParent) {
-            argTypes.push_back(interface_->getOrCreatePointerType(
-                interfaceMethodReceiverPointeeType(interface_, methodParent,
-                                                   node->receiverAccess)));
+            argTypes.push_back(interfaceMethodReceiverType(
+                interface_, methodParent, node->receiverMode));
+        } else if (extensionTarget) {
+            argTypes.push_back(interfaceExtensionReceiverType(
+                interface_, extensionTarget, node->receiverMode));
         }
         if (node->args) {
             for (auto *arg : *node->args) {
@@ -2331,7 +2332,10 @@ class InterfaceCollector {
                           "invalid function parameter declaration in `" +
                               toStdString(node->name) + "`");
                 }
-                auto *argType = resolveType(varDecl->typeNode);
+                auto *argType = resolveReceiverSignatureType(
+                    varDecl->typeNode,
+                    methodParent ? static_cast<TypeClass *>(methodParent)
+                                 : extensionTarget);
                 if (!argType) {
                     error(varDecl->loc,
                           "unknown type for function parameter `" +
@@ -2358,7 +2362,10 @@ class InterfaceCollector {
         TypeClass *retType = nullptr;
         if (node->retType) {
             collected.returnTypeNode = node->retType;
-            retType = resolveType(node->retType);
+            retType = resolveReceiverSignatureType(
+                node->retType, methodParent
+                                   ? static_cast<TypeClass *>(methodParent)
+                                   : extensionTarget);
             if (!retType) {
                 error(node->loc, "unknown return type for function `" +
                                      toStdString(node->name) + "`: " +
@@ -2375,6 +2382,11 @@ class InterfaceCollector {
             collected.returnTypeSpelling = retType->full_name;
         }
 
+        if (extensionTarget && node->isExternC()) {
+            error(node->loc,
+                  "#[extern \"C\"] is not supported on extension methods",
+                  "Declare a top-level wrapper function instead.");
+        }
         validateExternCFunctionSignature(node, methodParent, argTypes, retType);
         collected.type = interface_->getOrCreateFunctionType(
             argTypes, retType, collected.paramBindingKinds, node->abiKind);
@@ -2396,7 +2408,7 @@ class InterfaceCollector {
             }
             methods.push_back(ModuleInterface::MethodTemplateDecl{
                 funcDecl->name,
-                funcDecl->receiverAccess,
+                funcDecl->receiverMode,
                 std::move(collected.paramNames),
                 std::move(paramBindingKinds),
                 std::move(collected.paramTypeNodes),
@@ -2426,15 +2438,6 @@ class InterfaceCollector {
                 if (!funcDecl) {
                     continue;
                 }
-                if (funcDecl->hasExtensionReceiver()) {
-                    error(funcDecl->loc,
-                          "extension methods must be declared at top level",
-                          "Move `def " +
-                              describeTypeNode(funcDecl->extensionReceiverType(),
-                                               "void") +
-                              "." + toStdString(funcDecl->name) +
-                              "(...)` out of the struct body.");
-                }
                 auto collected = collectFunctionInterface(
                     funcDecl, structType,
                     typeDecl ? &typeDecl->typeParams : nullptr);
@@ -2451,7 +2454,7 @@ class InterfaceCollector {
                             toStdString(structDecl->name),
                             ModuleInterface::MethodTemplateDecl{
                                 funcDecl->name,
-                                funcDecl->receiverAccess,
+                                funcDecl->receiverMode,
                                 std::move(collected.paramNames),
                                 std::move(methodParamBindingKinds),
                                 std::move(collected.paramTypeNodes),
@@ -2470,7 +2473,8 @@ class InterfaceCollector {
                     structType->addMethodType(
                         llvm::StringRef(funcDecl->name.tochara(),
                                         funcDecl->name.size()),
-                        funcType, extractParamNames(funcDecl));
+                        funcDecl->receiverMode, funcType,
+                        extractParamNames(funcDecl));
                 }
             }
         }
@@ -2488,41 +2492,43 @@ class InterfaceCollector {
                                         std::move(collected.typeParams));
         }
 
-        for (auto *funcDecl : extensionDecls_) {
-            auto receiver = collectExtensionReceiver(funcDecl);
-            auto collected = collectFunctionInterface(funcDecl, nullptr);
+        for (const auto &extension : extensionDecls_) {
+            auto *funcDecl = extension.method;
+            auto target = collectExtensionTarget(extension.owner);
+            if (funcDecl->receiverMode == ReceiverMode::Value) {
+                if (auto *structType = asUnqualified<StructType>(target.type);
+                    structType && structType->isOpaqueDecl()) {
+                    error(funcDecl->loc,
+                          "`var def` requires a complete receiver type, got "
+                          "opaque `" +
+                              toStdString(structType->full_name) + "`",
+                          "Use a borrowed extension method or complete the "
+                          "struct layout.");
+                }
+            }
+            auto collected = collectFunctionInterface(funcDecl, nullptr,
+                                                      nullptr, target.type);
             auto explicitParamBindingKinds =
                 collected.paramBindingKinds.size() > 1
                     ? std::vector<BindingKind>(
                           collected.paramBindingKinds.begin() + 1,
                           collected.paramBindingKinds.end())
                     : std::vector<BindingKind>{};
-            auto explicitParamTypeNodes =
-                collected.paramTypeNodes.size() > 1
-                    ? std::vector<TypeNode *>(collected.paramTypeNodes.begin() + 1,
-                                              collected.paramTypeNodes.end())
-                    : std::vector<TypeNode *>{};
-            auto explicitParamTypeSpellings =
-                collected.paramTypeSpellings.size() > 1
-                    ? std::vector<string>(
-                          collected.paramTypeSpellings.begin() + 1,
-                          collected.paramTypeSpellings.end())
-                    : std::vector<string>{};
             interface_->declareExtensionMethod(
                 ModuleInterface::ExtensionMethodDecl{
                     funcDecl->name,
                     resolveExtensionMethodSymbolName(
-                        &unit_, toStdString(receiver.receiverTypeSpelling),
-                        toStringRef(funcDecl->name), true),
-                    receiver.kind,
-                    receiver.receiverTypeSpelling,
-                    receiver.baseTypeSpelling,
-                    funcDecl->extensionReceiverType(),
+                        &unit_, toStdString(target.typeSpelling),
+                        toStringRef(funcDecl->name), funcDecl->receiverMode,
+                        true),
+                    funcDecl->receiverMode,
+                    target.typeSpelling,
+                    extension.owner->targetType,
                     collected.type,
-                    extractParamNames(funcDecl, 1),
+                    extractParamNames(funcDecl),
                     std::move(explicitParamBindingKinds),
-                    std::move(explicitParamTypeNodes),
-                    std::move(explicitParamTypeSpellings),
+                    std::move(collected.paramTypeNodes),
+                    std::move(collected.paramTypeSpellings),
                     collected.returnTypeNode,
                     std::move(collected.returnTypeSpelling),
                     std::move(collected.typeParams),
@@ -2558,8 +2564,8 @@ class InterfaceCollector {
             if (!visibleDecl.decl) {
                 continue;
             }
-            auto key = toStdString(visibleDecl.decl->receiverTypeSpelling) +
-                       "#" + toStdString(visibleDecl.decl->localName);
+            auto key = toStdString(visibleDecl.decl->targetTypeSpelling) + "#" +
+                       toStdString(visibleDecl.decl->localName);
             if (auto found = exactNames.find(key); found != exactNames.end()) {
                 auto leftSource =
                     found->second->importedModule
@@ -2569,81 +2575,20 @@ class InterfaceCollector {
                     visibleDecl.importedModule
                         ? toStdString(visibleDecl.importedModule->moduleName)
                         : toStdString(unit_.moduleName());
-                error(visibleDecl.decl->syntaxDecl
-                          ? visibleDecl.decl->syntaxDecl->loc
-                          : unit_.syntaxTree()->loc,
-                      "visible extension method conflict for `" +
-                          toStdString(visibleDecl.decl->receiverTypeSpelling) +
-                          "." + toStdString(visibleDecl.decl->localName) + "`",
-                      "Current v0 has no explicit module-qualified extension "
-                      "call syntax. Rename one definition or remove one of "
-                      "the direct imports (`" + leftSource + "` vs `" +
-                          rightSource + "`).");
+                error(
+                    visibleDecl.decl->syntaxDecl
+                        ? visibleDecl.decl->syntaxDecl->loc
+                        : unit_.syntaxTree()->loc,
+                    "visible extension method conflict for `" +
+                        toStdString(visibleDecl.decl->targetTypeSpelling) +
+                        "." + toStdString(visibleDecl.decl->localName) + "`",
+                    "The conflicting candidates are `" + leftSource + "` (`" +
+                        receiverModeKeyword(found->second->decl->receiverMode) +
+                        "`) and `" + rightSource + "` (`" +
+                        receiverModeKeyword(visibleDecl.decl->receiverMode) +
+                        "`). Rename one method or remove one direct import.");
             }
             exactNames.emplace(std::move(key), &visibleDecl);
-        }
-
-        auto checkStructConflict =
-            [&](const ModuleInterface::TypeDecl &typeDecl,
-                const VisibleExtension &visibleDecl) {
-                auto *structType =
-                    typeDecl.type ? typeDecl.type->as<StructType>() : nullptr;
-                if (!structType || !visibleDecl.decl) {
-                    return;
-                }
-                auto receiverBaseName =
-                    toStdString(visibleDecl.decl->receiverBaseTypeSpelling);
-                auto structName = toStdString(structType->full_name);
-                const bool sameOwner =
-                    receiverBaseName == structName ||
-                    (receiverBaseName.size() > structName.size() &&
-                     receiverBaseName.compare(0, structName.size(),
-                                              structName) == 0 &&
-                     receiverBaseName[structName.size()] == '[');
-                if (!sameOwner) {
-                    return;
-                }
-                auto methodName = toStringRef(visibleDecl.decl->localName);
-                bool hasInherent = structType->getMethodType(methodName) != nullptr;
-                if (!hasInherent) {
-                    for (const auto &method : typeDecl.methodTemplates) {
-                        if (toStringRef(method.localName) == methodName) {
-                            hasInherent = true;
-                            break;
-                        }
-                    }
-                }
-                if (!hasInherent) {
-                    return;
-                }
-                error(visibleDecl.decl->syntaxDecl
-                          ? visibleDecl.decl->syntaxDecl->loc
-                          : unit_.syntaxTree()->loc,
-                      "extension method `" +
-                          toStdString(visibleDecl.decl->receiverBaseTypeSpelling) +
-                          "." + toStdString(visibleDecl.decl->localName) +
-                          "` conflicts with an inherent method",
-                      "Extension methods and ordinary methods share the same "
-                      "ordinary namespace in v0. Rename one of them.");
-            };
-
-        if (interface_) {
-            for (const auto &entry : interface_->types()) {
-                for (const auto &visibleDecl : visible) {
-                    checkStructConflict(entry.second, visibleDecl);
-                }
-            }
-        }
-        for (const auto &entry : unit_.importedModules()) {
-            const auto &imported = entry.second;
-            if (!imported.interface) {
-                continue;
-            }
-            for (const auto &typeEntry : imported.interface->types()) {
-                for (const auto &visibleDecl : visible) {
-                    checkStructConflict(typeEntry.second, visibleDecl);
-                }
-            }
         }
     }
 
@@ -2737,23 +2682,23 @@ ensureUnitInterfaceCollected(CompilationUnit &unit) {
 }
 
 Function *
-materializeDeclaredFunction(Scope &scope, TypeTable *typeMgr,
-                            FuncType *funcType, llvm::StringRef llvmName,
-                            std::vector<string> paramNames = {},
-                            bool hasImplicitSelf = false,
-                            const CompilationUnit *unit = nullptr) {
+materializeDeclaredFunction(
+    Scope &scope, TypeTable *typeMgr, FuncType *funcType,
+    llvm::StringRef llvmName, std::vector<string> paramNames = {},
+    std::optional<ReceiverMode> receiverMode = std::nullopt,
+    const CompilationUnit *unit = nullptr) {
     auto *existing = scope.getObj(llvmName);
     if (existing) {
         auto *func = existing->as<Function>();
         auto *existingType = func ? func->getType()->as<FuncType>() : nullptr;
         if (!func || existingType != funcType ||
-            func->hasImplicitSelf() != hasImplicitSelf) {
+            func->receiverMode() != receiverMode) {
             reportFunctionConflict(unit, llvmName, existingType, funcType);
         }
         return func;
     }
     auto *expectedLLVMType =
-        getFunctionAbiLLVMType(*typeMgr, funcType, hasImplicitSelf);
+        getFunctionAbiLLVMType(*typeMgr, funcType, receiverMode.has_value());
     if (auto *existingLLVM = typeMgr->getModule().getFunction(llvmName);
         existingLLVM && existingLLVM->getFunctionType() != expectedLLVMType) {
         reportFunctionConflict(unit, llvmName, nullptr, funcType);
@@ -2762,8 +2707,8 @@ materializeDeclaredFunction(Scope &scope, TypeTable *typeMgr,
         expectedLLVMType, llvm::Function::ExternalLinkage,
         llvm::Twine(llvmName), typeMgr->getModule());
     annotateFunctionAbi(*llvmFunc, funcType->getAbiKind());
-    auto *func = new Function(llvmFunc, funcType, std::move(paramNames),
-                              hasImplicitSelf);
+    auto *func =
+        new Function(llvmFunc, funcType, std::move(paramNames), receiverMode);
     scope.addObj(llvmName, func);
     return func;
 }
@@ -2848,9 +2793,13 @@ materializeStructMethodBindings(TypeTable *typeMgr, StructType *structType) {
         if (typeMgr->getMethodFunction(structType, method.first())) {
             continue;
         }
+        auto receiverMode = structType->getMethodReceiverMode(method.first());
+        if (!receiverMode) {
+            internalError("struct method is missing receiver mode metadata");
+        }
         auto methodName =
             declarationsupport_impl::resolveStructMethodSymbolName(
-                structType, method.first());
+                structType, method.first(), *receiverMode);
         auto *llvmFunc = llvm::Function::Create(
             getFunctionAbiLLVMType(*typeMgr, methodType, true),
             llvm::Function::ExternalLinkage, llvm::Twine(methodName),
@@ -2863,7 +2812,8 @@ materializeStructMethodBindings(TypeTable *typeMgr, StructType *structType) {
         }
         typeMgr->bindMethodFunction(
             structType, method.first(),
-            new Function(llvmFunc, methodType, std::move(paramNames), true));
+            new Function(llvmFunc, methodType, std::move(paramNames),
+                         *receiverMode));
     }
 }
 
@@ -2890,7 +2840,7 @@ materializeStructTraitMethodBindings(TypeTable *typeMgr,
 
         auto llvmName = declarationsupport_impl::resolveTraitMethodSymbolName(
             structType, toStringRef(entry.second.traitName),
-            toStringRef(entry.second.methodName));
+            toStringRef(entry.second.methodName), entry.second.receiverMode);
         auto *llvmFunc = typeMgr->getModule().getFunction(llvmName);
         if (!llvmFunc) {
             llvmFunc = llvm::Function::Create(
@@ -2902,17 +2852,19 @@ materializeStructTraitMethodBindings(TypeTable *typeMgr,
 
         typeMgr->bindMethodFunction(
             structType, toStringRef(methodKey),
-            new Function(llvmFunc, methodType, entry.second.paramNames, true));
+            new Function(llvmFunc, methodType, entry.second.paramNames,
+                         entry.second.receiverMode));
     }
 }
 
 TypeClass *
 materializeTraitMethodTypeByNode(TypeTable *typeMgr, CompilationUnit &unit,
-                                 TypeNode *typeNode) {
+                                 TypeNode *typeNode, TypeClass *selfType) {
     if (!typeMgr || !typeNode) {
         return nullptr;
     }
-    return unit.resolveType(typeMgr, typeNode);
+    return declarationsupport_impl::resolveContextualSelfType(
+        typeMgr, &unit, typeNode, selfType);
 }
 
 void
@@ -2933,17 +2885,25 @@ materializeConcreteTraitImplBodyMethods(
     for (const auto &method : implDecl.bodyMethods) {
         auto methodKey =
             traitMethodSlotKey(implDecl.traitName, method.localName);
+        if (auto *existing =
+                structType->getTraitMethodTypeByKey(toStringRef(methodKey));
+            existing && method.returnTypeNode && !existing->getRetType()) {
+            internalError(
+                "trait impl method `" + toStdString(method.localName) +
+                    "` acquired a void runtime signature before its `" +
+                    describeTypeNode(method.returnTypeNode, "<unknown type>") +
+                    "` return type was materialized",
+                "Do not intern receiver-contextual method types before "
+                "substituting `Self`.");
+        }
         if (!structType->getTraitMethodTypeByKey(toStringRef(methodKey))) {
             std::vector<TypeClass *> argTypes;
             argTypes.reserve(method.paramTypeNodes.size() + 1);
-            auto *selfPointee = method.receiverAccess == AccessKind::GetSet
-                                    ? static_cast<TypeClass *>(structType)
-                                    : static_cast<TypeClass *>(
-                                          typeMgr->createConstType(structType));
-            argTypes.push_back(typeMgr->createPointerType(selfPointee));
+            argTypes.push_back(
+                methodReceiverType(typeMgr, structType, method.receiverMode));
             for (std::size_t i = 0; i < method.paramTypeNodes.size(); ++i) {
                 auto *paramType = materializeTraitMethodTypeByNode(
-                    typeMgr, unit, method.paramTypeNodes[i]);
+                    typeMgr, unit, method.paramTypeNodes[i], structType);
                 if (!paramType) {
                     internalError(
                         "failed to materialize concrete trait impl method `" +
@@ -2958,15 +2918,25 @@ materializeConcreteTraitImplBodyMethods(
                 argTypes.push_back(paramType);
             }
             auto *retType = materializeTraitMethodTypeByNode(
-                typeMgr, unit, method.returnTypeNode);
+                typeMgr, unit, method.returnTypeNode, structType);
+            if (method.returnTypeNode && !retType) {
+                internalError(
+                    "failed to materialize concrete trait impl method `" +
+                        toStdString(method.localName) + "` return type `" +
+                        describeTypeNode(method.returnTypeNode,
+                                         "<unknown type>") +
+                        "`",
+                    "Trait impl body return types must resolve after `Self` "
+                    "substitution.");
+            }
             auto paramBindingKinds = method.paramBindingKinds;
             paramBindingKinds.insert(paramBindingKinds.begin(),
                                      BindingKind::Value);
             auto *funcType = typeMgr->getOrCreateFunctionType(
                 argTypes, retType, paramBindingKinds, AbiKind::Native);
-            structType->addTraitMethodType(toStringRef(implDecl.traitName),
-                                           toStringRef(method.localName),
-                                           funcType, method.paramNames);
+            structType->addTraitMethodType(
+                toStringRef(implDecl.traitName), toStringRef(method.localName),
+                method.receiverMode, funcType, method.paramNames);
         }
     }
 
@@ -3083,9 +3053,9 @@ materializeUnitInterface(Scope *global, CompilationUnit &unit,
                 "Imported interfaces should only contain function signatures "
                 "that were successfully collected from the defining module.");
         }
-        materializeDeclaredFunction(*global, typeMgr, funcType,
-                                    toStringRef(runtimeName),
-                                    entry.second.paramNames, false, &unit);
+        materializeDeclaredFunction(
+            *global, typeMgr, funcType, toStringRef(runtimeName),
+            entry.second.paramNames, std::nullopt, &unit);
         materializeReachableMethodBindings(typeMgr, storedType,
                                            reachableMethodTypes);
     }
@@ -3104,9 +3074,9 @@ materializeUnitInterface(Scope *global, CompilationUnit &unit,
                 "Imported interfaces should only contain extension methods "
                 "with fully resolved function signatures.");
         }
-        materializeDeclaredFunction(*global, typeMgr, funcType,
-                                    toStringRef(extensionDecl.symbolName),
-                                    extensionDecl.paramNames, false, &unit);
+        materializeDeclaredFunction(
+            *global, typeMgr, funcType, toStringRef(extensionDecl.symbolName),
+            extensionDecl.paramNames, extensionDecl.receiverMode, &unit);
         materializeReachableMethodBindings(typeMgr, storedType,
                                            reachableMethodTypes);
     }

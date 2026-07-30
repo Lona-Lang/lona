@@ -103,8 +103,7 @@ isNativeAbiAggregateType(TypeClass *type) {
     auto *storageType = stripTopLevelConst(type);
     return storageType &&
            (storageType->as<StructType>() || storageType->as<TupleType>() ||
-            storageType->as<DynTraitType>() ||
-            storageType->as<ArrayType>());
+            storageType->as<DynTraitType>() || storageType->as<ArrayType>());
 }
 
 bool
@@ -242,18 +241,12 @@ classifyNativeFunctionAbi(TypeTable &types, FuncType *funcType,
     llvmArgTypes.reserve(argTypes.size() +
                          (signature.hasIndirectResult ? 1 : 0));
 
-    std::size_t startIndex = 0;
-    if (hasImplicitSelf && !argTypes.empty()) {
-        llvmArgTypes.push_back(signature.sourceArgInfos.front().llvmType);
-        startIndex = 1;
-    }
-
     if (signature.hasIndirectResult) {
         llvmArgTypes.push_back(
             types.getLLVMType(types.createPointerType(retType)));
     }
 
-    for (std::size_t i = startIndex; i < argTypes.size(); ++i) {
+    for (std::size_t i = 0; i < argTypes.size(); ++i) {
         llvmArgTypes.push_back(signature.sourceArgInfos[i].llvmType);
     }
 

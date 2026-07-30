@@ -268,15 +268,16 @@ materializeStructLayoutAndMethods(const ModuleInterface::TypeDecl &typeDecl,
             continue;
         }
 
+        auto signatureArgs = genericArgs;
+        signatureArgs["Self"] = structType;
+
         std::vector<TypeClass *> argTypes;
         argTypes.reserve(method.paramTypeNodes.size() + 1);
-        auto *selfPointee =
-            ops.receiverPointeeType(structType, method.receiverAccess);
-        argTypes.push_back(ops.createPointerType(selfPointee));
+        argTypes.push_back(ops.receiverType(structType, method.receiverMode));
 
         for (std::size_t i = 0; i < method.paramTypeNodes.size(); ++i) {
             auto *paramType = substituteTemplateType(
-                method.paramTypeNodes[i], genericArgs,
+                method.paramTypeNodes[i], signatureArgs,
                 method.paramTypeNodes[i] ? method.paramTypeNodes[i]->loc
                                          : location(),
                 "parameter `" +
@@ -316,7 +317,8 @@ materializeStructLayoutAndMethods(const ModuleInterface::TypeDecl &typeDecl,
         TypeClass *retType = nullptr;
         if (method.returnTypeNode) {
             retType = substituteTemplateType(
-                method.returnTypeNode, genericArgs, method.returnTypeNode->loc,
+                method.returnTypeNode, signatureArgs,
+                method.returnTypeNode->loc,
                 "return type of method `" + toStdString(typeDecl.localName) +
                     "." + toStdString(method.localName) + "`",
                 templateOwnerUnit, ops);
@@ -336,7 +338,8 @@ materializeStructLayoutAndMethods(const ModuleInterface::TypeDecl &typeDecl,
         paramBindingKinds.insert(paramBindingKinds.begin(), BindingKind::Value);
         auto *funcType =
             ops.createMethodFunctionType(argTypes, retType, paramBindingKinds);
-        structType->addMethodType(toStringRef(method.localName), funcType,
+        structType->addMethodType(toStringRef(method.localName),
+                                  method.receiverMode, funcType,
                                   method.paramNames);
     }
 }

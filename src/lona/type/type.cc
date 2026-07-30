@@ -371,8 +371,7 @@ isFullyWritableValueType(TypeClass *type) {
     }
     if (type->as<BaseType>() || type->as<StructType>() ||
         type->as<FuncType>() || type->as<PointerType>() ||
-        type->as<DynTraitType>() ||
-        type->as<IndexablePointerType>()) {
+        type->as<DynTraitType>() || type->as<IndexablePointerType>()) {
         return true;
     }
     if (auto *array = type->as<ArrayType>()) {
@@ -450,9 +449,7 @@ ConstType::ConstType(TypeClass *baseType)
     retainTypeRef(baseType);
 }
 
-ConstType::~ConstType() {
-    releaseTypeRef(baseType);
-}
+ConstType::~ConstType() { releaseTypeRef(baseType); }
 
 llvm::Type *
 ConstType::buildLLVMType(TypeTable &types) {
@@ -462,8 +459,7 @@ ConstType::buildLLVMType(TypeTable &types) {
 llvm::Type *
 DynTraitType::buildLLVMType(TypeTable &types) {
     auto *ptrType = llvm::PointerType::getUnqual(types.getContext());
-    return llvm::StructType::get(types.getContext(), {ptrType, ptrType},
-                                 false);
+    return llvm::StructType::get(types.getContext(), {ptrType, ptrType}, false);
 }
 
 StructType::StructType(llvm::StringMap<ValueTy> &&members, string full_name,
@@ -547,28 +543,31 @@ StructType::complete(const llvm::StringMap<ValueTy> &newMembers,
 }
 
 void
-StructType::addMethodType(llvm::StringRef name, FuncType *funcType,
-                          std::vector<string> paramNames) {
+StructType::addMethodType(llvm::StringRef name, ReceiverMode receiverMode,
+                          FuncType *funcType, std::vector<string> paramNames) {
     retainTypeRef(funcType);
     if (auto found = methodTypes.find(name); found != methodTypes.end()) {
         releaseTypeRef(found->second);
     }
     methodTypes[name] = funcType;
+    methodReceiverModes[name] = receiverMode;
     methodParamNames[name] = std::move(paramNames);
 }
 
 void
 StructType::addTraitMethodType(llvm::StringRef traitName,
-                               llvm::StringRef methodName, FuncType *funcType,
+                               llvm::StringRef methodName,
+                               ReceiverMode receiverMode, FuncType *funcType,
                                std::vector<string> paramNames) {
     auto key = traitMethodSlotKey(traitName, methodName);
     retainTypeRef(funcType);
-    if (auto found = traitMethodTypes.find(key); found != traitMethodTypes.end()) {
+    if (auto found = traitMethodTypes.find(key);
+        found != traitMethodTypes.end()) {
         releaseTypeRef(found->second.funcType);
     }
-    traitMethodTypes[key] = TraitMethodEntry{
-        string(traitName.str()), string(methodName.str()), funcType,
-        std::move(paramNames)};
+    traitMethodTypes[key] =
+        TraitMethodEntry{string(traitName.str()), string(methodName.str()),
+                         receiverMode, funcType, std::move(paramNames)};
 }
 
 llvm::Type *
@@ -581,9 +580,7 @@ TupleType::TupleType(std::vector<TypeClass *> itemTypes)
     retainTypeRange(this->itemTypes);
 }
 
-TupleType::~TupleType() {
-    releaseTypeRange(itemTypes);
-}
+TupleType::~TupleType() { releaseTypeRange(itemTypes); }
 
 llvm::Type *
 TupleType::buildLLVMType(TypeTable &types) {
@@ -631,9 +628,7 @@ PointerType::PointerType(TypeClass *pointeeType)
     retainTypeRef(pointeeType);
 }
 
-PointerType::~PointerType() {
-    releaseTypeRef(pointeeType);
-}
+PointerType::~PointerType() { releaseTypeRef(pointeeType); }
 
 llvm::Type *
 PointerType::buildLLVMType(TypeTable &types) {
@@ -645,9 +640,7 @@ IndexablePointerType::IndexablePointerType(TypeClass *elementType)
     retainTypeRef(elementType);
 }
 
-IndexablePointerType::~IndexablePointerType() {
-    releaseTypeRef(elementType);
-}
+IndexablePointerType::~IndexablePointerType() { releaseTypeRef(elementType); }
 
 llvm::Type *
 IndexablePointerType::buildLLVMType(TypeTable &types) {
@@ -661,9 +654,7 @@ ArrayType::ArrayType(TypeClass *elementType, std::vector<AstNode *> dimensions)
     retainTypeRef(elementType);
 }
 
-ArrayType::~ArrayType() {
-    releaseTypeRef(elementType);
-}
+ArrayType::~ArrayType() { releaseTypeRef(elementType); }
 
 llvm::Type *
 ArrayType::buildLLVMType(TypeTable &types) {

@@ -62,6 +62,7 @@ public:
         InlineGlobal,
         GlobalValue,
         GenericFunction,
+        MethodFunction,
         Type,
         GenericType,
         Trait,
@@ -117,6 +118,12 @@ public:
         return ref;
     }
 
+    static ResolvedEntityRef methodFunction() {
+        ResolvedEntityRef ref;
+        ref.kind_ = Kind::MethodFunction;
+        return ref;
+    }
+
     static ResolvedEntityRef type(string name) {
         ResolvedEntityRef ref;
         ref.kind_ = Kind::Type;
@@ -124,9 +131,9 @@ public:
         return ref;
     }
 
-    static ResolvedEntityRef genericType(string name,
-                                         const ModuleInterface::TypeDecl *typeDecl,
-                                         const ModuleInterface *ownerInterface = nullptr) {
+    static ResolvedEntityRef genericType(
+        string name, const ModuleInterface::TypeDecl *typeDecl,
+        const ModuleInterface *ownerInterface = nullptr) {
         ResolvedEntityRef ref;
         ref.kind_ = Kind::GenericType;
         ref.resolvedName_ = std::move(name);
@@ -168,6 +175,7 @@ class ResolvedFunction {
     bool ownsBody_ = false;
     string functionName_;
     string methodParentTypeName_;
+    string extensionTargetTypeName_;
     location loc_;
     bool topLevelEntry_ = false;
     bool languageEntry_ = false;
@@ -187,18 +195,16 @@ class ResolvedFunction {
     std::unordered_map<const AstFuncRef *, ResolvedEntityRef> functionRefs_;
 
 public:
-    ResolvedFunction(const AstFuncDecl *decl, const AstNode *body,
-                     bool ownsBody,
-                     string functionName, string methodParentTypeName,
-                     const location &loc, bool topLevelEntry,
-                     bool languageEntry, bool guaranteedReturn,
-                     bool templateValidationOnly = false,
-                     std::vector<string> genericTypeParams = {},
-                     std::unordered_map<std::string, std::string>
-                         genericTypeParamBounds = {},
-                     const ModuleInterface *genericOwnerInterface = nullptr,
-                     std::unordered_map<std::string, TypeClass *>
-                         concreteGenericTypes = {})
+    ResolvedFunction(
+        const AstFuncDecl *decl, const AstNode *body, bool ownsBody,
+        string functionName, string methodParentTypeName, const location &loc,
+        bool topLevelEntry, bool languageEntry, bool guaranteedReturn,
+        bool templateValidationOnly = false,
+        std::vector<string> genericTypeParams = {},
+        std::unordered_map<std::string, std::string> genericTypeParamBounds =
+            {},
+        const ModuleInterface *genericOwnerInterface = nullptr,
+        std::unordered_map<std::string, TypeClass *> concreteGenericTypes = {})
         : decl_(decl),
           body_(body),
           ownsBody_(ownsBody),
@@ -226,6 +232,13 @@ public:
     const string &functionName() const { return functionName_; }
     bool isMethod() const { return !methodParentTypeName_.empty(); }
     const string &methodParentTypeName() const { return methodParentTypeName_; }
+    bool isExtensionMethod() const { return !extensionTargetTypeName_.empty(); }
+    const string &extensionTargetTypeName() const {
+        return extensionTargetTypeName_;
+    }
+    void setExtensionTargetTypeName(string name) {
+        extensionTargetTypeName_ = std::move(name);
+    }
     const location &loc() const { return loc_; }
     bool isTopLevelEntry() const { return topLevelEntry_; }
     bool isLanguageEntry() const { return languageEntry_; }
@@ -234,8 +247,8 @@ public:
     const std::vector<string> &genericTypeParams() const {
         return genericTypeParams_;
     }
-    const std::unordered_map<std::string, std::string> &
-    genericTypeParamBounds() const {
+    const std::unordered_map<std::string, std::string> &genericTypeParamBounds()
+        const {
         return genericTypeParamBounds_;
     }
     const std::string *genericTypeParamBound(const std::string &name) const {
@@ -251,8 +264,8 @@ public:
     const ModuleInterface *genericOwnerInterface() const {
         return genericOwnerInterface_;
     }
-    const std::unordered_map<std::string, TypeClass *> &
-    concreteGenericTypes() const {
+    const std::unordered_map<std::string, TypeClass *> &concreteGenericTypes()
+        const {
         return concreteGenericTypes_;
     }
     TypeClass *concreteGenericType(const std::string &name) const {
@@ -307,20 +320,16 @@ public:
         ResolvedLocalBinding::Kind kind, BindingKind bindingKind, string name,
         const AstNode *node, const location &loc);
 
-    ResolvedFunction *createFunction(const AstFuncDecl *decl,
-                                     const AstNode *body, bool ownsBody,
-                                     string functionName,
-                                     string methodParentTypeName,
-                                     const location &loc, bool topLevelEntry,
-                                     bool languageEntry,
-                                     bool guaranteedReturn,
-                                     bool templateValidationOnly = false,
-                                     std::vector<string> genericTypeParams = {},
-                                     std::unordered_map<std::string, std::string>
-                                         genericTypeParamBounds = {},
-                                     const ModuleInterface *genericOwnerInterface = nullptr,
-                                     std::unordered_map<std::string, TypeClass *>
-                                         concreteGenericTypes = {});
+    ResolvedFunction *createFunction(
+        const AstFuncDecl *decl, const AstNode *body, bool ownsBody,
+        string functionName, string methodParentTypeName, const location &loc,
+        bool topLevelEntry, bool languageEntry, bool guaranteedReturn,
+        bool templateValidationOnly = false,
+        std::vector<string> genericTypeParams = {},
+        std::unordered_map<std::string, std::string> genericTypeParamBounds =
+            {},
+        const ModuleInterface *genericOwnerInterface = nullptr,
+        std::unordered_map<std::string, TypeClass *> concreteGenericTypes = {});
 
     const std::vector<std::unique_ptr<ResolvedFunction>> &functions() const {
         return functions_;
@@ -334,8 +343,7 @@ resolveModule(GlobalScope *global, AstNode *root,
 std::unique_ptr<ResolvedModule>
 resolveGenericFunctionInstance(
     GlobalScope *global, const CompilationUnit *unit, const AstFuncDecl *decl,
-    string resolvedFunctionName,
-    const ModuleInterface *genericOwnerInterface,
+    string resolvedFunctionName, const ModuleInterface *genericOwnerInterface,
     std::unordered_map<std::string, TypeClass *> concreteGenericTypes);
 
 std::unique_ptr<ResolvedModule>

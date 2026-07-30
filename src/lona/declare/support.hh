@@ -43,38 +43,46 @@ resolveStructMethodOwnerTypeName(StructType *methodParent);
 
 std::string
 resolveStructMethodSymbolName(StructType *methodParent,
-                              llvm::StringRef methodName);
+                              llvm::StringRef methodName,
+                              ReceiverMode receiverMode);
 
 std::string
-resolveTraitMethodSymbolName(StructType *methodParent, llvm::StringRef traitName,
-                             llvm::StringRef methodName);
-
-struct ExtensionReceiverInfo {
-    ExtensionReceiverKind kind = ExtensionReceiverKind::Value;
-    TypeClass *receiverType = nullptr;
-    TypeClass *baseType = nullptr;
-    std::string receiverTypeSpelling;
-    std::string baseTypeSpelling;
-};
-
-ExtensionReceiverInfo
-classifyExtensionReceiver(TypeTable *typeMgr, const CompilationUnit *unit,
-                          AstFuncDecl *node);
+resolveTraitMethodSymbolName(StructType *methodParent,
+                             llvm::StringRef traitName,
+                             llvm::StringRef methodName,
+                             ReceiverMode receiverMode);
 
 std::string
 resolveExtensionMethodSymbolName(const CompilationUnit *unit,
-                                 const std::string &receiverTypeSpelling,
+                                 const std::string &targetTypeSpelling,
                                  llvm::StringRef methodName,
+                                 ReceiverMode receiverMode,
                                  bool exportNamespace);
 
 TypeClass *
-methodReceiverPointeeType(TypeTable *typeMgr, StructType *methodParent,
-                          AccessKind receiverAccess);
+extensionReceiverType(TypeTable *typeMgr, TypeClass *targetType,
+                      ReceiverMode receiverMode);
 
 TypeClass *
-interfaceMethodReceiverPointeeType(ModuleInterface *interface,
-                                   StructType *methodParent,
-                                   AccessKind receiverAccess);
+interfaceExtensionReceiverType(ModuleInterface *interface,
+                               TypeClass *targetType,
+                               ReceiverMode receiverMode);
+
+TypeClass *
+methodReceiverType(TypeTable *typeMgr, StructType *methodParent,
+                   ReceiverMode receiverMode);
+
+TypeClass *
+interfaceMethodReceiverType(ModuleInterface *interface,
+                            StructType *methodParent,
+                            ReceiverMode receiverMode);
+
+TypeClass *
+resolveContextualSelfType(TypeTable *typeMgr, const CompilationUnit *unit,
+                          TypeNode *node, TypeClass *selfType);
+
+void
+validateExtensionTargetShape(AstExtendDecl *node);
 
 void
 validateFunctionReceiverAccess(AstFuncDecl *node, StructType *methodParent);
@@ -142,7 +150,8 @@ declareFunction(Scope &scope, TypeTable *typeMgr, AstFuncDecl *node,
                 bool exportNamespace = false);
 
 Function *
-declareExtensionFunction(Scope &scope, TypeTable *typeMgr, AstFuncDecl *node,
+declareExtensionFunction(Scope &scope, TypeTable *typeMgr,
+                         AstExtendDecl *extendDecl, AstFuncDecl *node,
                          CompilationUnit *unit = nullptr,
                          bool exportNamespace = false);
 

@@ -26,7 +26,7 @@ def test_method_self_lowering_uses_struct_gep(compiler: CompilerHarness) -> None
         """,
     )
     ir = compiler.emit_ir(input_path).expect_ok().stdout
-    assert_regex(ir, r"@.*Counter\.bump", label="method self ir")
+    assert_regex(ir, r"@.*Counter\.bump\.__receiver_get", label="method self ir")
     assert_regex(ir, r"getelementptr inbounds %.*Counter", label="method self ir")
 
 
@@ -51,8 +51,8 @@ def test_mutating_method_lowers_to_pointer_receiver(compiler: CompilerHarness) -
         """,
     )
     ir = compiler.emit_ir(input_path).expect_ok().stdout
-    assert_regex(ir, r"^define i32 @.*Counter\.bump\(ptr ", label="mutating method ir")
-    assert_regex(ir, r"call i32 @.*Counter\.bump\(ptr ", label="mutating method ir")
+    assert_regex(ir, r"^define i32 @.*Counter\.bump\.__receiver_set\(ptr ", label="mutating method ir")
+    assert_regex(ir, r"call i32 @.*Counter\.bump\.__receiver_set\(ptr ", label="mutating method ir")
     assert_regex(ir, r"store i32 .*ptr %", label="mutating method ir")
 
 
@@ -79,8 +79,8 @@ def test_method_self_can_be_used_as_pointer_value(
         """,
     )
     ir = compiler.emit_ir(input_path).expect_ok().stdout
-    assert_regex(ir, r"^define i32 @.*Counter\.bump\(ptr ", label="method self pointer ir")
-    assert_regex(ir, r"call i32 @.*Counter\.bump\(ptr ", label="method self pointer ir")
+    assert_regex(ir, r"^define i32 @.*Counter\.bump\.__receiver_set\(ptr ", label="method self pointer ir")
+    assert_regex(ir, r"call i32 @.*Counter\.bump\.__receiver_set\(ptr ", label="method self pointer ir")
 
 
 def test_set_field_allows_external_assignment(compiler: CompilerHarness) -> None:
@@ -376,7 +376,7 @@ def test_imported_trait_supports_local_impl_static_dispatch(
         """,
     )
     ir = compiler.emit_ir(main_path).expect_ok().stdout
-    assert_regex(ir, r"call i32 @.*Point\.hash\(ptr ", label="imported trait local impl ir")
+    assert_regex(ir, r"call i32 @.*Point\.hash\.__receiver_get\(ptr ", label="imported trait local impl ir")
     assert_not_contains(ir, "trait namespaces can't be used", label="imported trait local impl ir")
 
 
@@ -421,7 +421,11 @@ def test_imported_trait_uses_imported_impl_for_static_dispatch(
         """,
     )
     ir = compiler.emit_ir(main_path).expect_ok().stdout
-    assert_regex(ir, r"call i32 @dep\.Point\.hash\(ptr ", label="imported trait imported impl ir")
+    assert_regex(
+        ir,
+        r"call i32 @dep\.Point\.__trait__\..*Hash\.hash\.__receiver_get\(ptr ",
+        label="imported trait imported impl ir",
+    )
     assert_not_contains(ir, "store i32 27", label="local import precedence ir")
 
 
@@ -771,7 +775,7 @@ def test_imported_bounded_generic_functions_check_bounds_and_lower_plain_dot_cal
     )
     assert_contains(
         ir,
-        "call i32 @dep.Point.hash(",
+        "call i32 @dep.Point.hash.__receiver_get(",
         label="imported generic bound function ir",
     )
 
@@ -834,12 +838,12 @@ def test_imported_generic_trait_impl_bodies_enable_trait_qualified_calls_for_app
     ir = compiler.emit_ir(main_path).expect_ok().stdout
     assert_regex(
         ir,
-        r"define i32 @dep_2eBox_5b.*dep_2ePoint.*_5d\.hash\(ptr ",
+        r"define i32 @dep_2eBox_5b.*dep_2ePoint.*_5d\.hash\.__receiver_get\(ptr ",
         label="imported generic trait impl body ir",
     )
     assert_regex(
         ir,
-        r"call i32 @dep_2eBox_5b.*dep_2ePoint.*_5d\.hash\(ptr ",
+        r"call i32 @dep_2eBox_5b.*dep_2ePoint.*_5d\.hash\.__receiver_get\(ptr ",
         label="imported generic trait impl body ir",
     )
 
@@ -1539,17 +1543,17 @@ def test_imported_struct_decl_bounds_and_generic_methods_lower_in_requester(
     ir = compiler.emit_ir(main_path).expect_ok().stdout
     assert_regex(
         ir,
-        r"@dep_2eBox_5b.*dep_2ePoint.*_5d\.echo__inst__i32",
+        r"@dep_2eBox_5b.*dep_2ePoint.*_5d\.echo\.__receiver_get__inst__i32",
         label="imported generic method explicit instantiation ir",
     )
     assert_regex(
         ir,
-        r"@dep_2eBox_5b.*dep_2ePoint.*_5d\.echo__inst__bool",
+        r"@dep_2eBox_5b.*dep_2ePoint.*_5d\.echo\.__receiver_get__inst__bool",
         label="imported generic method inferred instantiation ir",
     )
     assert_regex(
         ir,
-        r"@dep_2eBox_5b.*dep_2ePoint.*_5d\.score_with__inst__.*dep_2eOther",
+        r"@dep_2eBox_5b.*dep_2ePoint.*_5d\.score_with\.__receiver_get__inst__.*dep_2eOther",
         label="imported generic method bounded instantiation ir",
     )
 
@@ -1595,7 +1599,7 @@ def test_imported_trait_supports_local_impl_dynamic_dispatch(
     assert_contains(ir, "@__lona_trait_witness__", label="imported trait local dyn ir")
     assert_regex(
         ir,
-        r"@__lona_trait_witness__.*\[ptr @.*Point\.__trait__\..*Hash\.hash\]",
+        r"@__lona_trait_witness__.*\[ptr @.*Point\.__trait__\..*Hash\.hash\.__receiver_get\]",
         label="imported trait local dyn ir",
     )
     assert_contains(
@@ -1649,7 +1653,7 @@ def test_imported_trait_uses_imported_impl_for_dynamic_dispatch(
     ir = compiler.emit_ir(main_path).expect_ok().stdout
     assert_regex(
         ir,
-        r"@__lona_trait_witness__.*\[ptr @dep\.Point\.__trait__\..*Hash\.hash\]",
+        r"@__lona_trait_witness__.*\[ptr @dep\.Point\.__trait__\..*Hash\.hash\.__receiver_get\]",
         label="imported trait imported dyn ir",
     )
     assert_contains(
@@ -1713,12 +1717,12 @@ def test_wrapper_trait_impl_on_imported_self_type_carries_methods_downstream(
     ir = compiler.emit_ir(main_path).expect_ok().stdout
     assert_regex(
         ir,
-        r"call i32 @other\.Point\.hash\(ptr ",
+        r"call i32 @other\.Point\.__trait__\..*Hash\.hash\.__receiver_get\(ptr ",
         label="wrapper imported-self impl ir",
     )
     assert_regex(
         ir,
-        r"@__lona_trait_witness__.*\[ptr @other\.Point\.__trait__\..*Hash\.hash\]",
+        r"@__lona_trait_witness__.*\[ptr @other\.Point\.__trait__\..*Hash\.hash\.__receiver_get\]",
         label="wrapper imported-self impl ir",
     )
     assert_contains(
@@ -1789,7 +1793,7 @@ def test_imported_trait_impl_body_materializes_pointer_and_dyn_signatures(
     ir = compiler.emit_ir(main_path).expect_ok().stdout
     assert_regex(
         ir,
-        r"call i32 @dep\.Point\.__trait__\..*Score\.score\(ptr ",
+        r"call i32 @dep\.Point\.__trait__\..*Score\.score\.__receiver_get\(ptr ",
         label="imported trait signature materialization ir",
     )
     assert_contains(
@@ -1849,7 +1853,7 @@ def test_impl_for_body_on_imported_self_type_carries_methods_downstream(
     ir = compiler.emit_ir(main_path).expect_ok().stdout
     assert_regex(
         ir,
-        r"call i32 @other\.Point\.__trait__\..*wrap(?:\.|_2e)Hash\.hash\(ptr ",
+        r"call i32 @other\.Point\.__trait__\..*wrap(?:\.|_2e)Hash\.hash\.__receiver_get\(ptr ",
         label="impl-for imported self ir",
     )
     assert_contains(
@@ -1906,7 +1910,7 @@ def test_impl_for_body_on_imported_trait_type_carries_methods_downstream(
     ir = compiler.emit_ir(main_path).expect_ok().stdout
     assert_regex(
         ir,
-        r"call i32 @wrap\.Point\.__trait__\..*dep(?:\.|_2e)Hash\.hash\(ptr ",
+        r"call i32 @wrap\.Point\.__trait__\..*dep(?:\.|_2e)Hash\.hash\.__receiver_get\(ptr ",
         label="impl-for imported trait ir",
     )
     assert_contains(
@@ -2295,17 +2299,17 @@ def test_multi_level_module_symbols_use_full_canonical_prefixes(
     )
     assert_regex(
         ir,
-        r"define i32 @A\.B\.C\.xx\.Counter\.bump\(ptr ",
+        r"define i32 @A\.B\.C\.xx\.Counter\.bump\.__receiver_get\(ptr ",
         label="multi level symbol prefix ir",
     )
     assert_regex(
         ir,
-        r"define i32 @A\.B\.C\.xx\.Counter\.__trait__\..*A(?:\.|_2e)B(?:\.|_2e)C(?:\.|_2e)xx(?:\.|_2e)Score\.score\(ptr ",
+        r"define i32 @A\.B\.C\.xx\.Counter\.__trait__\..*A(?:\.|_2e)B(?:\.|_2e)C(?:\.|_2e)xx(?:\.|_2e)Score\.score\.__receiver_get\(ptr ",
         label="multi level symbol prefix ir",
     )
     assert_regex(
         ir,
-        r"@__lona_trait_witness__.*\[ptr @A\.B\.C\.xx\.Counter\.__trait__\..*A(?:\.|_2e)B(?:\.|_2e)C(?:\.|_2e)xx(?:\.|_2e)Score\.score\]",
+        r"@__lona_trait_witness__.*\[ptr @A\.B\.C\.xx\.Counter\.__trait__\..*A(?:\.|_2e)B(?:\.|_2e)C(?:\.|_2e)xx(?:\.|_2e)Score\.score\.__receiver_get\]",
         label="multi level symbol prefix ir",
     )
 
@@ -2698,8 +2702,8 @@ def test_field_method_chain_uses_pointer_receiver(compiler: CompilerHarness) -> 
         """,
     )
     ir = compiler.emit_ir(input_path).expect_ok().stdout
-    assert_regex(ir, r"@.*Counter\.read", label="field method chain ir")
-    assert_regex(ir, r"call i32 @.*Counter\.read\(ptr ", label="field method chain ir")
+    assert_regex(ir, r"@.*Counter\.read\.__receiver_get", label="field method chain ir")
+    assert_regex(ir, r"call i32 @.*Counter\.read\.__receiver_get\(ptr ", label="field method chain ir")
 
 
 def test_import_links_functions_types_and_constructors(compiler: CompilerHarness) -> None:
@@ -3218,8 +3222,8 @@ def test_imported_methods_and_aggregate_calls_lower_correctly(compiler: Compiler
         """,
     )
     ir = compiler.emit_ir(main_path).expect_ok().stdout
-    assert_contains(ir, "define i32 @dep.Vec2.add(ptr ", label="named imported method ir")
-    assert_contains(ir, "call i32 @dep.Vec2.add(", label="named imported method ir")
+    assert_contains(ir, "define i32 @dep.Vec2.add.__receiver_get(ptr ", label="named imported method ir")
+    assert_contains(ir, "call i32 @dep.Vec2.add.__receiver_get(", label="named imported method ir")
 
     compiler.write_source(
         "import_mutating_method/dep.lo",
@@ -3247,11 +3251,11 @@ def test_imported_methods_and_aggregate_calls_lower_correctly(compiler: Compiler
         """,
     )
     ir = compiler.emit_ir(main_path).expect_ok().stdout
-    assert_contains(ir, "define i32 @dep.Counter.bump(ptr ", label="mutating imported method ir")
-    assert_contains(ir, "call i32 @dep.Counter.bump(ptr ", label="mutating imported method ir")
+    assert_contains(ir, "define i32 @dep.Counter.bump.__receiver_set(ptr ", label="mutating imported method ir")
+    assert_contains(ir, "call i32 @dep.Counter.bump.__receiver_set(ptr ", label="mutating imported method ir")
     assert_regex(
         ir,
-        r"(?s)define i32 @dep\.Counter\.bump\(ptr %0, i32 %1\).*?getelementptr inbounds %dep\.Counter, ptr %\d+, i32 0, i32 0",
+        r"(?s)define i32 @dep\.Counter\.bump\.__receiver_set\(ptr %0, i32 %1\).*?getelementptr inbounds %dep\.Counter, ptr %\d+, i32 0, i32 0",
         label="mutating imported method ir",
     )
 
@@ -3285,9 +3289,17 @@ def test_imported_methods_and_aggregate_calls_lower_correctly(compiler: Compiler
     )
     ir = compiler.emit_ir(main_path).expect_ok().stdout
     assert_regex(ir, r"^define i64 @dep\.echo\(i64 [^)]+\)", label="packed aggregate ir")
-    assert_regex(ir, r"^define i64 @dep\.Pair\.swap\(ptr [^,]+, i32 [^)]+\)", label="packed aggregate ir")
+    assert_regex(
+        ir,
+        r"^define i64 @dep\.Pair\.swap\.__receiver_get\(ptr [^,]+, i32 [^)]+\)",
+        label="packed aggregate ir",
+    )
     assert_regex(ir, r"call i64 @dep\.echo\(i64 %", label="packed aggregate ir")
-    assert_regex(ir, r"call i64 @dep\.Pair\.swap\(ptr [^,]+, i32 3\)", label="packed aggregate ir")
+    assert_regex(
+        ir,
+        r"call i64 @dep\.Pair\.swap\.__receiver_get\(ptr [^,]+, i32 3\)",
+        label="packed aggregate ir",
+    )
 
     compiler.write_source(
         "import_direct_return/dep.lo",
@@ -3324,11 +3336,15 @@ def test_imported_methods_and_aggregate_calls_lower_correctly(compiler: Compiler
     assert_regex(ir, r"^define %dep\.Triple @dep\.echo\(ptr [^)]+\)", label="direct return aggregate ir")
     assert_regex(
         ir,
-        r"^define %dep\.Triple @dep\.Triple\.shift\(ptr [^,]+, i32 [^)]+\)",
+        r"^define %dep\.Triple @dep\.Triple\.shift\.__receiver_get\(ptr [^,]+, i32 [^)]+\)",
         label="direct return aggregate ir",
     )
     assert_regex(ir, r"call %dep\.Triple @dep\.echo\(ptr %", label="direct return aggregate ir")
-    assert_regex(ir, r"call %dep\.Triple @dep\.Triple\.shift\(ptr [^,]+, i32 4\)", label="direct return aggregate ir")
+    assert_regex(
+        ir,
+        r"call %dep\.Triple @dep\.Triple\.shift\.__receiver_get\(ptr [^,]+, i32 4\)",
+        label="direct return aggregate ir",
+    )
     assert_not_contains(ir, "sret", label="direct return aggregate ir")
 
 
@@ -3682,9 +3698,9 @@ def test_large_struct_returns_and_grammar_subset_stay_lowerable(compiler: Compil
     )
     ir = compiler.emit_ir(input_path).expect_ok().stdout
     assert_regex(ir, r"^%.*Big = type \{ i32, i32, i32, i32, i32 \}", label="large struct ir")
-    assert_regex(ir, r"^define void @.*Big\.add\(ptr ", label="large struct ir")
+    assert_regex(ir, r"^define void @.*Big\.add\.__receiver_get\(ptr ", label="large struct ir")
     assert_contains(ir, "define void @make_big(ptr ", label="large struct ir")
-    assert_regex(ir, r"call void @.*Big\.add\(ptr ", label="large struct ir")
+    assert_regex(ir, r"call void @.*Big\.add\.__receiver_get\(ptr ", label="large struct ir")
 
     input_path = compiler.write_source(
         "grammar_subset.lo",

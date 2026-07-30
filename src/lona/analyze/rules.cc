@@ -153,11 +153,13 @@ getMethodCallArgOffset(HIRSelector *selector, FuncType *type) {
     auto *parentType =
         selector->getParent() ? selector->getParent()->getType() : nullptr;
     const auto &argTypes = type->getArgTypes();
-    auto *selfPointeeType = !argTypes.empty()
-                                ? getRawPointerPointeeType(argTypes.front())
-                                : nullptr;
-    if (selfPointeeType && parentType &&
-        asUnqualified<StructType>(selfPointeeType) ==
+    auto *receiverType = !argTypes.empty() ? argTypes.front() : nullptr;
+    auto *receiverValueType = getRawPointerPointeeType(receiverType);
+    if (!receiverValueType) {
+        receiverValueType = receiverType;
+    }
+    if (receiverValueType && parentType &&
+        asUnqualified<StructType>(receiverValueType) ==
             asUnqualified<StructType>(parentType)) {
         return 1;
     }

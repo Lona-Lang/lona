@@ -250,27 +250,34 @@ struct Box {
 
 这里外部不能写 `obj.ptr = other`，但仍然可以写 `*obj.ptr = 7`。
 
-### 6.2 `set def`
+### 6.2 三种 receiver mode
 
-方法的 hidden receiver 总是指针，但 receiver pointee 是否带 `const` 由 `set` 决定：
+receiver scope 中的方法有三种明确形态：
 
-- 普通 `def`：`self Self const*`
-- `set def`：`self Self*`
+- 普通 `def`：`self Self const*`，只读借用
+- `set def`：`self Self*`，可写借用
+- `var def`：`self Self`，按值复制
 
 因此：
 
 - 普通 `def` 里不能改写 `self`
 - `set def` 才能通过当前 receiver 改写对象
+- `var def` 里可以改写本地 `self`，但这些写入不回写调用方
+- mutable/const 对象都能调用 `def` 和 `var def`；只有 writable 对象能调用 `set def`
+- `T* const` 可以调用 `set def`，因为冻结的是指针槽位；`T const*` 不可以，因为冻结的是 pointee
+
+`var def` 直接复用普通按值物化规则：receiver 当前层的 `const` 可以在副本上丢弃，成员类型内部的限定不会递归丢弃。Lona 不允许 `T const` 这种对象型 const 成员；需要保留的成员边界用 `T const*`、`T const[*]` 等指向只读数据的成员表达。
 
 ### 6.3 字段 `set` 不约束结构体内部的 writable receiver
 
 在同一个结构体的方法体里，字段是不是 `set field` 不决定能不能内部写入；
-真正决定因素是当前 receiver 是 `Self const*` 还是 `Self*`。
+真正决定因素是当前 receiver 是 `Self const*`、`Self*` 还是独立的 `Self` 值副本。
 
 也就是说：
 
 - 普通 `def`：即使字段写成 `set value`，也不能写 `self.value = ...`
 - `set def`：即使字段本身不是 `set field`，也可以通过当前 writable receiver 改写自身槽位
+- `var def`：inherent method 可以改写副本中的普通字段；extension method 仍按类型外部权限检查字段投影
 
 ## 7. 结构体字段自身必须是 fully writable storage type
 
@@ -305,6 +312,7 @@ struct Span {
 - `var` / `ref` 管绑定
 - `const` 管当前类型视图是否可写，前缀 `const` 绑定只是这套语义的表面写法
 - `set` 管结构体成员投影和 receiver 是否给出 writable view
+- `var def` 提供可写值副本，不提供调用方对象的 writable view
 - 按值复制会丢掉“被复制出来的那一层 `const`”
 - 指针复制不会去掉 pointee 的 `const`
 - `ref` 只建立别名；它可以增加 `const`，不能丢掉已有 `const`
