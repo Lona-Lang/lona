@@ -2268,7 +2268,11 @@ class ModuleResolver {
             return;
         }
         for (auto *stmt : body->getBody()) {
-            if (auto *method = stmt ? stmt->as<AstFuncDecl>() : nullptr) {
+            if (auto *traitImpl =
+                    stmt ? stmt->as<AstTraitImplDecl>() : nullptr) {
+                resolveTraitImpl(traitImpl);
+            } else if (auto *method =
+                           stmt ? stmt->as<AstFuncDecl>() : nullptr) {
                 resolveExtensionFunction(node, method);
             }
         }
@@ -2403,9 +2407,6 @@ class ModuleResolver {
                     continue;
                 case AstKind::GlobalDecl:
                 case AstKind::TraitDecl:
-                    continue;
-                case AstKind::TraitImplDecl:
-                    resolveTraitImpl(static_cast<AstTraitImplDecl *>(stmt));
                     continue;
                 case AstKind::ExtendDecl:
                     resolveExtend(static_cast<AstExtendDecl *>(stmt));

@@ -47,33 +47,39 @@ struct VectorIter {
     set index i32
 }
 
-impl SizedCollection for IntVector {
-    def len() i32 {
-        ret self.length
-    }
-}
-
-impl IntAggregate for IntVector {
-    def total() i32 {
-        var index i32 = 0
-        var out i32 = 0
-        for index < self.length {
-            out = out + self.values(index)
-            index = index + 1
+extend IntVector {
+    impl SizedCollection {
+        def len() i32 {
+            ret self.length
         }
-        ret out
     }
 }
 
-impl IntIter for VectorIter {
-    def done() bool {
-        ret self.index >= (*self.source).length
+extend IntVector {
+    impl IntAggregate {
+        def total() i32 {
+            var index i32 = 0
+            var out i32 = 0
+            for index < self.length {
+                out = out + self.values(index)
+                index = index + 1
+            }
+            ret out
+        }
     }
+}
 
-    set def next() i32 {
-        var out = (*self.source).values(self.index)
-        self.index = self.index + 1
-        ret out
+extend VectorIter {
+    impl IntIter {
+        def done() bool {
+            ret self.index >= (*self.source).length
+        }
+
+        set def next() i32 {
+            var out = (*self.source).values(self.index)
+            self.index = self.index + 1
+            ret out
+        }
     }
 }
 
@@ -116,33 +122,39 @@ struct ListIter {
     set current i32
 }
 
-impl SizedCollection for IntList {
-    def len() i32 {
-        ret self.length
-    }
-}
-
-impl IntAggregate for IntList {
-    def total() i32 {
-        var cur = self.head
-        var out i32 = 0
-        for cur != -1 {
-            out = out + self.nodes(cur).value
-            cur = self.nodes(cur).next
+extend IntList {
+    impl SizedCollection {
+        def len() i32 {
+            ret self.length
         }
-        ret out
     }
 }
 
-impl IntIter for ListIter {
-    def done() bool {
-        ret self.current == -1
+extend IntList {
+    impl IntAggregate {
+        def total() i32 {
+            var cur = self.head
+            var out i32 = 0
+            for cur != -1 {
+                out = out + self.nodes(cur).value
+                cur = self.nodes(cur).next
+            }
+            ret out
+        }
     }
+}
 
-    set def next() i32 {
-        var out = (*self.source).nodes(self.current).value
-        self.current = (*self.source).nodes(self.current).next
-        ret out
+extend ListIter {
+    impl IntIter {
+        def done() bool {
+            ret self.current == -1
+        }
+
+        set def next() i32 {
+            var out = (*self.source).nodes(self.current).value
+            self.current = (*self.source).nodes(self.current).next
+            ret out
+        }
     }
 }
 
@@ -187,35 +199,41 @@ struct MapIter {
     set index i32
 }
 
-impl SizedCollection for IntMap {
-    def len() i32 {
-        ret self.length
-    }
-}
-
-impl IntAggregate for IntMap {
-    def total() i32 {
-        var index i32 = 0
-        var out i32 = 0
-        for index < self.length {
-            out = out + self.values(index)
-            index = index + 1
+extend IntMap {
+    impl SizedCollection {
+        def len() i32 {
+            ret self.length
         }
-        ret out
     }
 }
 
-impl EntryIter for MapIter {
-    def done() bool {
-        ret self.index >= (*self.source).length
+extend IntMap {
+    impl IntAggregate {
+        def total() i32 {
+            var index i32 = 0
+            var out i32 = 0
+            for index < self.length {
+                out = out + self.values(index)
+                index = index + 1
+            }
+            ret out
+        }
     }
+}
 
-    set def next() Entry {
-        var out Entry
-        out.key = (*self.source).keys(self.index)
-        out.value = (*self.source).values(self.index)
-        self.index = self.index + 1
-        ret out
+extend MapIter {
+    impl EntryIter {
+        def done() bool {
+            ret self.index >= (*self.source).length
+        }
+
+        set def next() Entry {
+            var out Entry
+            out.key = (*self.source).keys(self.index)
+            out.value = (*self.source).values(self.index)
+            self.index = self.index + 1
+            ret out
+        }
     }
 }
 

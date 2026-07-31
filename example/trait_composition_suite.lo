@@ -18,9 +18,11 @@ struct Identity {
     }
 }
 
-impl Weighted for Identity {
-    def weight(bias i32) i32 {
-        ret self.machine_id() + bias
+extend Identity {
+    impl Weighted {
+        def weight(bias i32) i32 {
+            ret self.machine_id() + bias
+        }
     }
 }
 
@@ -34,15 +36,19 @@ struct RollingCounter {
 
 }
 
-impl Metric for RollingCounter {
-    def score() i32 {
-        ret self.total * 2
+extend RollingCounter {
+    impl Metric {
+        def score() i32 {
+            ret self.total * 2
+        }
     }
 }
 
-impl Weighted for RollingCounter {
-    def weight(bias i32) i32 {
-        ret self.total + bias
+extend RollingCounter {
+    impl Weighted {
+        def weight(bias i32) i32 {
+            ret self.total + bias
+        }
     }
 }
 
@@ -56,9 +62,11 @@ struct RetryBudget {
 
 }
 
-impl Weighted for RetryBudget {
-    def weight(bias i32) i32 {
-        ret self.remaining * 10 + bias
+extend RetryBudget {
+    impl Weighted {
+        def weight(bias i32) i32 {
+            ret self.remaining * 10 + bias
+        }
     }
 }
 
@@ -82,18 +90,22 @@ struct WorkerService {
     }
 }
 
-impl Metric for WorkerService {
-    def score() i32 {
-        ret self.machine_id() + self.RollingCounter.score() + self.remaining
+extend WorkerService {
+    impl Metric {
+        def score() i32 {
+            ret self.machine_id() + self.RollingCounter.score() + self.remaining
+        }
     }
 }
 
-impl Weighted for WorkerService {
-    def weight(bias i32) i32 {
-        var from_id = self.Identity.weight(bias)
-        var from_counter = self.RollingCounter.weight(bias)
-        var from_budget = self.RetryBudget.weight(bias)
-        ret from_id + from_counter + from_budget
+extend WorkerService {
+    impl Weighted {
+        def weight(bias i32) i32 {
+            var from_id = self.Identity.weight(bias)
+            var from_counter = self.RollingCounter.weight(bias)
+            var from_budget = self.RetryBudget.weight(bias)
+            ret from_id + from_counter + from_budget
+        }
     }
 }
 

@@ -321,9 +321,11 @@ def test_extension_methods_do_not_participate_in_generic_bound_lookup(
             }
         }
 
-        impl Hash for Point {
-            def hash() i32 {
-                ret self.hash()
+        extend Point {
+            impl Hash {
+                def hash() i32 {
+                    ret self.hash()
+                }
             }
         }
 

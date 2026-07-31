@@ -4569,8 +4569,8 @@ class FunctionAnalyzer {
                   "trait object construction expects a concrete struct value "
                   "for trait `" +
                       toStdString(traitDecl->exportedName) + "`",
-                  "Only struct types can currently satisfy "
-                  "`impl Trait for Type { ... }`.");
+                  "Only struct types can currently be used as trait impl "
+                  "targets.");
         }
 
         auto visibleImpls =
@@ -4580,9 +4580,9 @@ class FunctionAnalyzer {
                   "type `" + describeResolvedType(selfType) +
                       "` does not implement trait `" +
                       toStdString(traitDecl->exportedName) + "`",
-                  "Add `impl " + toStdString(traitDecl->exportedName) +
-                      " for " + describeResolvedType(selfType) +
-                      " { ... }` in a visible module before constructing `" +
+                  "Add `extend " + describeResolvedType(selfType) + " { impl " +
+                      toStdString(traitDecl->exportedName) +
+                      " { ... } }` in a visible module before constructing `" +
                       describeResolvedType(targetType) + "`.");
         }
         ensureVisibleTraitImplBodyMethods(visibleImpls, selfType,
@@ -6257,9 +6257,9 @@ class FunctionAnalyzer {
                       toStdString(param.boundTraitName) +
                       "` for generic parameter `" +
                       toStdString(param.localName) + "` in " + context,
-                  "Add `impl " + toStdString(param.boundTraitName) + " for " +
-                      describeResolvedType(found->second) +
-                      " { ... }` in a visible module, or choose a type that "
+                  "Add `extend " + describeResolvedType(found->second) +
+                      " { impl " + toStdString(param.boundTraitName) +
+                      " { ... } }` in a visible module, or choose a type that "
                       "already "
                       "satisfies the bound.");
         }

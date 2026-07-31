@@ -363,9 +363,11 @@ def test_imported_trait_supports_local_impl_static_dispatch(
             }
         }
 
-        impl dep.Hash for Point {
-            def hash() i32 {
-                ret self.hash()
+        extend Point {
+            impl dep.Hash {
+                def hash() i32 {
+                    ret self.hash()
+                }
             }
         }
 
@@ -398,9 +400,11 @@ def test_imported_trait_uses_imported_impl_for_static_dispatch(
             }
         }
 
-        impl Hash for Point {
-            def hash() i32 {
-                ret self.hash()
+        extend Point {
+            impl Hash {
+                def hash() i32 {
+                    ret self.hash()
+                }
             }
         }
 
@@ -742,9 +746,11 @@ def test_imported_bounded_generic_functions_check_bounds_and_lower_plain_dot_cal
             }
         }
 
-        impl Hash for Point {
-            def hash() i32 {
-                ret self.hash()
+        extend Point {
+            impl Hash {
+                def hash() i32 {
+                    ret self.hash()
+                }
             }
         }
 
@@ -798,9 +804,11 @@ def test_imported_generic_trait_impl_bodies_enable_trait_qualified_calls_for_app
             }
         }
 
-        impl Hash for Point {
-            def hash() i32 {
-                ret self.hash()
+        extend Point {
+            impl Hash {
+                def hash() i32 {
+                    ret self.hash()
+                }
             }
         }
 
@@ -812,9 +820,11 @@ def test_imported_generic_trait_impl_bodies_enable_trait_qualified_calls_for_app
             }
         }
 
-        impl[T Hash] Hash for Box[T] {
-            def hash() i32 {
-                ret self.hash()
+        extend[T Hash] Box[T] {
+            impl Hash {
+                def hash() i32 {
+                    ret self.hash()
+                }
             }
         }
 
@@ -1488,14 +1498,18 @@ def test_imported_struct_decl_bounds_and_generic_methods_lower_in_requester(
             }
         }
 
-        impl Hash for Point {
-            def hash() i32 {
-                ret self.hash()
+        extend Point {
+            impl Hash {
+                def hash() i32 {
+                    ret self.hash()
+                }
             }
         }
-        impl Hash for Other {
-            def hash() i32 {
-                ret self.hash()
+        extend Other {
+            impl Hash {
+                def hash() i32 {
+                    ret self.hash()
+                }
             }
         }
 
@@ -1582,9 +1596,11 @@ def test_imported_trait_supports_local_impl_dynamic_dispatch(
             }
         }
 
-        impl dep.Hash for Point {
-            def hash() i32 {
-                ret self.hash()
+        extend Point {
+            impl dep.Hash {
+                def hash() i32 {
+                    ret self.hash()
+                }
             }
         }
 
@@ -1627,9 +1643,11 @@ def test_imported_trait_uses_imported_impl_for_dynamic_dispatch(
             }
         }
 
-        impl Hash for Point {
-            def hash() i32 {
-                ret self.hash()
+        extend Point {
+            impl Hash {
+                def hash() i32 {
+                    ret self.hash()
+                }
             }
         }
 
@@ -1691,9 +1709,11 @@ def test_wrapper_trait_impl_on_imported_self_type_carries_methods_downstream(
             def hash() i32
         }
 
-        impl Hash for other.Point {
-            def hash() i32 {
-                ret self.hash()
+        extend other.Point {
+            impl Hash {
+                def hash() i32 {
+                    ret self.hash()
+                }
             }
         }
 
@@ -1754,21 +1774,27 @@ def test_imported_trait_impl_body_materializes_pointer_and_dyn_signatures(
             value i32
         }
 
-        impl Score for Point {
-            def score(other Point*) i32 {
-                ret self.value + other.value
+        extend Point {
+            impl Score {
+                def score(other Point*) i32 {
+                    ret self.value + other.value
+                }
             }
         }
 
-        impl Later for Point {
-            def hash() i32 {
-                ret self.value + 1
+        extend Point {
+            impl Later {
+                def hash() i32 {
+                    ret self.value + 1
+                }
             }
         }
 
-        impl Link for Point {
-            def connect(other Later dyn) i32 {
-                ret self.value + other.hash()
+        extend Point {
+            impl Link {
+                def connect(other Later dyn) i32 {
+                    ret self.value + other.hash()
+                }
             }
         }
 
@@ -1827,9 +1853,11 @@ def test_impl_for_body_on_imported_self_type_carries_methods_downstream(
             def hash() i32
         }
 
-        impl Hash for other.Point {
-            def hash() i32 {
-                ret self.value + 2
+        extend other.Point {
+            impl Hash {
+                def hash() i32 {
+                    ret self.value + 2
+                }
             }
         }
 
@@ -1883,9 +1911,11 @@ def test_impl_for_body_on_imported_trait_type_carries_methods_downstream(
             value i32
         }
 
-        impl dep.Hash for Point {
-            def hash() i32 {
-                ret self.value + 2
+        extend Point {
+            impl dep.Hash {
+                def hash() i32 {
+                    ret self.value + 2
+                }
             }
         }
 
@@ -1948,9 +1978,11 @@ def test_imported_trait_readonly_dyn_signatures_work_across_module_boundaries(
             }
         }
 
-        impl dep.Hash for Point {
-            def hash() i32 {
-                ret self.hash()
+        extend Point {
+            impl dep.Hash {
+                def hash() i32 {
+                    ret self.hash()
+                }
             }
         }
 
@@ -1999,15 +2031,19 @@ def test_imported_traits_with_same_local_name_support_distinct_body_impl_dispatc
             value i32
         }
 
-        impl left.Hash for Point {
-            def read() i32 {
-                ret self.value + 1
+        extend Point {
+            impl left.Hash {
+                def read() i32 {
+                    ret self.value + 1
+                }
             }
         }
 
-        impl right.Hash for Point {
-            def read() i32 {
-                ret self.value + 2
+        extend Point {
+            impl right.Hash {
+                def read() i32 {
+                    ret self.value + 2
+                }
             }
         }
 
@@ -2059,15 +2095,19 @@ def test_imported_traits_with_same_local_name_report_unqualified_method_ambiguit
             value i32
         }
 
-        impl left.Hash for Point {
-            def read() i32 {
-                ret self.value + 1
+        extend Point {
+            impl left.Hash {
+                def read() i32 {
+                    ret self.value + 1
+                }
             }
         }
 
-        impl right.Hash for Point {
-            def read() i32 {
-                ret self.value + 2
+        extend Point {
+            impl right.Hash {
+                def read() i32 {
+                    ret self.value + 2
+                }
             }
         }
 
@@ -2264,9 +2304,11 @@ def test_multi_level_module_symbols_use_full_canonical_prefixes(
             def score(step i32) i32
         }
 
-        impl Score for Counter {
-            def score(step i32) i32 {
-                ret self.bump(step)
+        extend Counter {
+            impl Score {
+                def score(step i32) i32 {
+                    ret self.bump(step)
+                }
             }
         }
 

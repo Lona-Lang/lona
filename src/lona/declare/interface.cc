@@ -1301,7 +1301,7 @@ class InterfaceCollector {
             segments.empty()) {
             error(loc, "invalid trait reference in impl declaration",
                   "Use a trait name like `Hash` or `dep.Hash` in "
-                  "`impl Trait for Type { ... }`.");
+                  "`extend Type { impl Trait { ... } }`.");
         }
 
         if (segments.size() == 1) {
@@ -1349,9 +1349,9 @@ class InterfaceCollector {
         auto *base = rootSelfTypeBase(selfTypeNode);
         if (!base) {
             error(loc, "trait impl self type must name a struct type",
-                  "Write `impl Hash for Point` or "
-                  "`impl[T Trait] Hash for Box[T]`, not pointers, arrays, "
-                  "tuples, or function types.");
+                  "Write `extend Point { impl Hash { ... } }` or "
+                  "`extend[T Trait] Box[T] { impl Hash { ... } }`, not "
+                  "pointers, arrays, tuples, or function types.");
         }
 
         auto genericParamNames = collectGenericParamNames(typeParams);
@@ -1398,8 +1398,8 @@ class InterfaceCollector {
                   "generic impl self type requires declaration-style type "
                   "arguments: `" +
                       toStdString(typeDecl->exportedName) + "`",
-                  "Write `impl[T Trait] Trait for Box[T]` or "
-                  "`impl Trait for Box[i32]`.");
+                  "Write `extend[T Trait] Box[T] { impl Trait { ... } }` or "
+                  "`extend Box[i32] { impl Trait { ... } }`.");
         }
 
         StructType *resolvedStructType = nullptr;
@@ -1665,7 +1665,7 @@ class InterfaceCollector {
                           "` cannot have a body in trait v0",
                       "Keep only the method signature inside the trait. "
                       "Put implementations in a separate impl body such as "
-                      "`impl Hash for Point { ... }`.");
+                      "`extend Point { impl Hash { ... } }`.");
             }
             if (funcDecl->hasTypeParams()) {
                 error(funcDecl->loc,
@@ -1813,9 +1813,6 @@ class InterfaceCollector {
                                        toStdString(traitDecl->name),
                                        TopLevelDeclKind::Trait, traitDecl->loc);
                 traitDecls_.push_back(traitDecl);
-            } else if (auto *traitImplDecl =
-                           dynamic_cast<AstTraitImplDecl *>(stmt)) {
-                traitImplDecls_.push_back(traitImplDecl);
             } else if (auto *funcDecl = dynamic_cast<AstFuncDecl *>(stmt)) {
                 validateImportAliasConflict(funcDecl);
                 recordTopLevelDeclName(
@@ -1832,12 +1829,27 @@ class InterfaceCollector {
                           "Write `extend Type { ... }`.");
                 }
                 for (auto *entry : extendBody->getBody()) {
+                    if (auto *traitImpl =
+                            entry ? entry->as<AstTraitImplDecl>() : nullptr) {
+                        traitImplDecls_.push_back(traitImpl);
+                        continue;
+                    }
                     auto *method = entry ? entry->as<AstFuncDecl>() : nullptr;
                     if (!method) {
                         error(entry ? entry->loc : extendDecl->loc,
-                              "extend blocks can only contain instance methods",
-                              "Keep only `def`, `set def`, or `var def` "
-                              "declarations inside this block.");
+                              "extend blocks can only contain instance methods "
+                              "or trait impl blocks",
+                              "Keep `def`, `set def`, `var def`, or "
+                              "`impl Trait { ... }` declarations inside this "
+                              "block.");
+                    }
+                    if (extendDecl->hasTypeParams()) {
+                        error(method->loc,
+                              "generic extend declarations currently only "
+                              "support trait impl blocks",
+                              "Move this method to a concrete `extend Type { "
+                              "... }` block, or keep only `impl Trait { ... }` "
+                              "inside the generic extend declaration.");
                     }
                     if (!method->hasBody()) {
                         error(method->loc,
@@ -1935,7 +1947,8 @@ class InterfaceCollector {
                 traitImplDecl->selfType, implTypeParams, traitImplDecl->loc);
             if (!traitRef.localToUnit && !selfRef.localToUnit) {
                 error(traitImplDecl->loc,
-                      "impl `" + toStdString(traitRef.resolvedName) + " for " +
+                      "implementation of trait `" +
+                          toStdString(traitRef.resolvedName) + "` for type `" +
                           toStdString(selfRef.resolvedName) +
                           "` violates the trait orphan rule",
                       "At least one side of an impl must be defined in the "

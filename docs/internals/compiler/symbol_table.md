@@ -70,7 +70,7 @@
 
 - `struct Box[T]` 会进入 `localTypes_`
 - `def wrap[T](...)` 会进入 `localFunctions_`
-- `impl[T Hash] Hash for Box[T] { ... }` 只会进入 `traitImpls_`
+- `extend[T Hash] Box[T] { impl Hash { ... } }` 只会进入 `traitImpls_`
 - `Box[i32]`、`wrap[i32]`、`Box[i32].get` 这些 concrete instance 不会进入这一层
 
 ### 3.2 exported name 与 source local name 分开
@@ -113,7 +113,7 @@ trait 相关数据分成三部分：
 也就是说，下面两种东西绝对不能混：
 
 - `Hash` 这样的顶层 trait 名字
-- `impl Hash for Point { ... }` 这样的满足性声明
+- `extend Point { impl Hash { ... } }` 这样的满足性声明
 
 ### 3.4 generic 在接口层的形状
 
@@ -689,9 +689,11 @@ struct Box[T] {
     value T
 }
 
-impl[T Hash] Hash for Box[T] {
-    def hash() i32 {
-        ret Hash.hash(&self.value)
+extend[T Hash] Box[T] {
+    impl Hash {
+        def hash() i32 {
+            ret Hash.hash(&self.value)
+        }
     }
 }
 

@@ -120,6 +120,24 @@
         }
     }
 
+    void
+    bindExtendTraitImpls(
+        TypeNode *targetType,
+        const std::vector<AstGenericParam *> *typeParams,
+        AstStatList *body) {
+        if (!body) {
+            return;
+        }
+        for (auto *stmt : body->getBody()) {
+            auto *traitImpl = dynamic_cast<AstTraitImplDecl *>(stmt);
+            if (!traitImpl || traitImpl->hasSelfType()) {
+                continue;
+            }
+            traitImpl->setBorrowedSelfType(targetType);
+            traitImpl->setTypeParams(cloneGenericParams(typeParams));
+        }
+    }
+
     }  // namespace
 
     #undef yylex
@@ -196,7 +214,7 @@
 %right unary
 
 %type <node> pragram pragram_stat
-%type <node> struct_decl extend_decl trait_decl impl_decl struct_impl_decl func_decl trait_func_decl import_stat global_decl
+%type <node> struct_decl extend_decl trait_decl struct_impl_decl func_decl trait_func_decl import_stat global_decl
 %type <node> struct_stat extend_stat trait_stat stat
 %type <node> stat_if stat_for stat_ret stat_break stat_continue stat_expr
 %type <node> call_like cast_expr sizeof_expr tuple_literal brace_init brace_init_item call_arg named_call_arg
@@ -218,7 +236,6 @@
 %type <generic_param> generic_param
 %type <generic_param_seq> generic_param_seq opt_type_params
 %type <node> tag_stat type_bracket_item
-%type <typeNode> impl_self_type impl_self_type_atom
 
 %destructor { delete $$; } <tag> <generic_param> <node> <stat_list> <var_decl> <typeNode>
 %destructor { lona::deletePointerVector($$); } <seq> <tags> <generic_param_seq> <type_seq>
@@ -257,7 +274,6 @@ pragram_stat
     | import_stat { $$ = $1; }
     | global_decl { $$ = $1; }
     | trait_decl { $$ = $1; }
-    | impl_decl { $$ = $1; }
     | extend_decl { $$ = $1; }
     ;
 
@@ -451,11 +467,12 @@ func_decl
     ;
 
 extend_decl
-    : EXTEND type_name '{' '}' {
-        $$ = new AstExtendDecl($2, new AstStatList(), @$);
+    : EXTEND opt_type_params type_name '{' '}' {
+        $$ = new AstExtendDecl($3, new AstStatList(), $2, @$);
     }
-    | EXTEND type_name extend_statlist '}' {
-        $$ = new AstExtendDecl($2, $3, @$);
+    | EXTEND opt_type_params type_name extend_statlist '}' {
+        bindExtendTraitImpls($3, $2, $4);
+        $$ = new AstExtendDecl($3, $4, $2, @$);
     }
     ;
 
@@ -477,6 +494,7 @@ extend_statlist
 
 extend_stat
     : func_decl { $$ = $1; }
+    | struct_impl_decl { $$ = $1; }
     | tag_stat { $$ = $1; }
     | error NEWLINE {
         $$ = nullptr;
@@ -599,7 +617,7 @@ struct_impl_decl
             "Remove the `[...]` here when implementing `" + traitName +
                 "` inside a struct; shorthand impls automatically inherit the enclosing struct's generic parameters, so these " +
                 std::to_string(shorthandGenericCount) +
-                " shorthand-only parameter(s) cannot be matched. If you need a different generic impl header, write a top-level `impl[...] Trait for Type[...] { ... }`.");
+                " shorthand-only parameter(s) cannot be matched. If you need a different generic impl header, write `extend[...] Type[...] { impl Trait { ... } }`.");
     }
     ;
 
@@ -667,12 +685,6 @@ trait_stat
     | error NEWLINE {
         $$ = nullptr;
         yyerrok;
-    }
-    ;
-
-impl_decl
-    : IMPL opt_type_params dot_like_name FOR opt_newlines impl_self_type stat_compound {
-        $$ = new AstTraitImplDecl($6, $3, $7, $2, @$);
     }
     ;
 
@@ -1080,25 +1092,6 @@ dot_like
 dot_like_name
     : FIELD { $$ = new AstField(*$1); }
     | dot_like_name '.' opt_newlines FIELD { $$ = new AstDotLike($1, $4); }
-    ;
-
-impl_self_type_atom
-    : dot_like_name {
-        $$ = new BaseTypeNode($1, @$);
-    }
-    | TYPE {
-        $$ = new BaseTypeNode($1->text, @$);
-    }
-    ;
-
-impl_self_type
-    : impl_self_type_atom {
-        $$ = $1;
-    }
-    | impl_self_type '[' opt_newlines type_name_seq opt_newlines ']' %prec type_suffix {
-        $$ = new AppliedTypeNode($1, *$4, @$);
-        delete $4;
-    }
     ;
 
 %include type.sub.yacc

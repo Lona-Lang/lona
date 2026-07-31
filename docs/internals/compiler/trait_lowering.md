@@ -22,8 +22,8 @@ generic v0 当前已经有单独的内部文档：
 trait v0 当前只覆盖：
 
 - `trait` 顶层声明
-- `impl Trait for Type { ... }`
-- `impl[T Trait] Trait for Box[T] { ... }`
+- `extend Type { impl Trait { ... } }`
+- `extend[T Trait] Box[T] { impl Trait { ... } }`
 - `Trait.method(&value, ...)` / `Trait.method(ptr, ...)` 静态限定调用
 - `value.Trait.method(...)` / `ptr.Trait.method(...)` 显式 receiver trait 路径
 - trait 方法参与普通 `obj.method()` 的唯一匹配
@@ -61,7 +61,7 @@ trait 信息首先进入 `ModuleInterface`，对应文件：
    - 字段、`var`、`global`、可执行语句和 nested struct 都会被定向拒绝；
    - trait method 不能带 body。
 2. 收集并验证 impl declaration：
-   - `impl Trait for Type { ... }` 会检查 orphan rule；
+   - `extend Type { impl Trait { ... } }` 会检查 orphan rule；
    - 同一可见程序图中的 `(Trait, Type)` 不能重复；
    - 编译器会验证 impl body 是否完整覆盖 trait 已声明的方法；
    - 每个 body method 都会按 name、`ReceiverMode`、参数个数、binding kind、参数类型和返回类型与 trait 方法签名对齐。
@@ -72,7 +72,7 @@ trait v0 没有把这些信息放进“实现细节”层，而是明确放进�
 
 - trait declaration 本身进入 `interfaceHash`
 - trait method 签名进入 `interfaceHash`
-- visible `impl Trait for Type { ... }` declaration 进入 `interfaceHash`
+- visible `extend Type { impl Trait { ... } }` declaration 进入 `interfaceHash`
 
 这样做的原因是：
 

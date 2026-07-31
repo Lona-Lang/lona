@@ -10,9 +10,11 @@ struct Point {
     value i32
 }
 
-impl Hash for Point {
-    def hash() i32 {
-        ret self.value + 1
+extend Point {
+    impl Hash {
+        def hash() i32 {
+            ret self.value + 1
+        }
     }
 }
 
@@ -28,9 +30,11 @@ struct Box[T] {
     }
 }
 
-impl[T Hash] Hash for Box[T] {
-    def hash() i32 {
-        ret 100
+extend[T Hash] Box[T] {
+    impl Hash {
+        def hash() i32 {
+            ret 100
+        }
     }
 }
 

@@ -17,7 +17,7 @@ generic v0 当前已经支持：
 - 泛型函数实体引用，例如 `@id[i32]`
 - 单 trait bound，例如 `[T Hash]`
 - generic struct declaration 上的单 trait bound，例如 `struct Box[T Hash]`
-- generic impl body，例如 `impl[T Hash] Hash for Box[T] { ... }`
+- generic impl body，例如 `extend[T Hash] Box[T] { impl Hash { ... } }`
 
 不在这版稳定范围里的内容见本文最后一节。
 
@@ -193,9 +193,11 @@ struct Box[T Hash] {
 
 }
 
-impl[T Hash] Hash for Box[T] {
-    def hash() i32 {
-        ret Hash.hash(&self.value)
+extend[T Hash] Box[T] {
+    impl Hash {
+        def hash() i32 {
+            ret Hash.hash(&self.value)
+        }
     }
 }
 ```
@@ -278,4 +280,4 @@ generic v0 当前有这些明确边界：
 - 默认模板实参
 - specialization / partial specialization
 
-如果需要具体的 trait-bound 运行语义、`impl[T Trait] Trait for Box[T]` 的约束，继续看 [trait.md](trait.md)。
+如果需要具体的 trait-bound 运行语义、`extend[T Trait] Box[T] { impl Trait { ... } }` 的约束，继续看 [trait.md](trait.md)。

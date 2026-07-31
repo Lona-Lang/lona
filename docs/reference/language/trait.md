@@ -3,9 +3,9 @@
 本文描述当前 `lona` 已实现的 trait v0 能力：
 
 - `trait` 顶层声明
-- `impl Trait for Type { ... }` 这类带方法体的 impl
+- `extend Type { impl Trait { ... } }` 这类外部 impl
 - `struct Type { impl Trait { ... } }` 这类 struct-local shorthand impl
-- `impl[T Trait] Trait for Box[T]` 这类单 bound generic impl
+- `extend[T Trait] Box[T] { impl Trait { ... } }` 这类单 bound generic impl
 - `def func[T Trait](value T)` 这类单 trait bound generic function
 - `Trait.method(&value, ...)` / `Trait.method(ptr, ...)` 静态限定调用
 - `value.Trait.method(...)` / `ptr.Trait.method(...)` 显式 receiver trait 路径
@@ -48,20 +48,23 @@ struct Point {
     value i32
 }
 
-impl Hash for Point {
-    def hash() i32 {
-        ret self.value + 1
+extend Point {
+    impl Hash {
+        def hash() i32 {
+            ret self.value + 1
+        }
     }
 }
 ```
 
 规则：
 
-- `impl Hash for Point { ... }` 允许直接在 impl body 里写 trait 方法实现。
+- `extend Point { impl Hash { ... } }` 允许在类型声明之外提供 trait 方法实现。
 - 这类 impl body 方法属于 trait 专属方法命名空间，不会和普通 inherent method 共用同一个方法槽。
-- `impl[T Trait] Trait for Box[T] { ... }` 表示“对所有满足该单 bound 的具体实例，都提供一份显式 trait 实现”。
+- `extend[T Trait] Box[T] { impl Trait { ... } }` 表示“对所有满足该单 bound 的具体实例，都提供一份显式 trait 实现”。
 - 编译器会按方法名、receiver mode、参数个数、参数 binding kind、参数类型、返回类型检查 impl body 与 trait 声明是否一致。
-- `impl Trait for Type { ... }` 已支持 local self、imported self、applied self 和 generic self。
+- `extend Type { impl Trait { ... } }` 已支持 local self、imported self、applied self 和 generic self。
+- 旧的顶层 `impl Trait for Type { ... }` 语法已删除。
 - 这版 impl body 里只允许 trait 已声明的方法定义；不允许额外 helper method。
 - trait 已声明的方法必须全部在 impl body 里显式给出。
 - struct 声明现在支持单 bound，例如 `struct Box[T Hash]`。
@@ -79,7 +82,7 @@ impl Hash for Point {
 
 ### 2.1 struct-local shorthand
 
-除了顶层 `impl Trait for Type { ... }`，当前还支持写在结构体 body 里的 shorthand：
+当类型就在当前模块声明时，也可以把 impl 直接写在结构体 body 中：
 
 ```lona
 struct Point {
@@ -95,10 +98,10 @@ struct Point {
 
 规则：
 
-- `struct Point { impl Hash { ... } }` 等价于在模块顶层写 `impl Hash for Point { ... }`。
-- 如果结构体带 generic parameter，例如 `struct Box[T Hash]`，那么 shorthand impl 会自动继承这些 parameter；也就是说 `impl Hash { ... }` 等价于 `impl[T Hash] Hash for Box[T] { ... }`。
+- `struct Point { impl Hash { ... } }` 与 `extend Point { impl Hash { ... } }` 表达同一份实现。
+- 如果结构体带 generic parameter，例如 `struct Box[T Hash]`，那么 shorthand impl 会自动继承这些 parameter；也就是说其中的 `impl Hash { ... }` 与 `extend[T Hash] Box[T] { impl Hash { ... } }` 表达同一份实现。
 - shorthand 只绑定到当前结构体自身，不需要也不允许额外再写 `for SelfType`。
-- shorthand 也不能再写自己的 `impl[...]` header generic parameter；如果你需要不同的 impl generic header，请改回顶层 `impl[...] Trait for Type[...] { ... }`。
+- shorthand 也不能再写自己的 `impl[...]` header generic parameter；如果你需要不同的 impl generic header，请使用 `extend[...] Type[...] { impl Trait { ... } }`。
 - shorthand impl 仍然遵守普通 trait impl 的签名检查、visible impl coherence 和 orphan rule。
 
 ## 3. 静态限定调用
@@ -118,7 +121,7 @@ ret Hash.hash(&point)
 - 第一个源码实参就是显式 receiver；`def`/`set def` 传 self pointer，`var def` 传 `Self` 值。
 - 这条路径暂时不接受临时值 receiver，例如 `Trait.method(&Point(...), ...)`。
 - 编译器会先验证 receiver 的 concrete type 是否有 visible impl。
-- 通过后会直接绑定到 concrete method 实现；如果方法来自 `impl Trait for Type { ... }`，也会绑定到这份实现，不经过 witness table。
+- 通过后会直接绑定到 concrete method 实现；如果方法来自外部 `extend` 中的 impl，也会绑定到这份实现，不经过 witness table。
 - `def` 需要 `Self const*`，`set def` 需要 `Self*`，`var def` 需要 `Self` 值。
 - 因此 `Trait.bump(&const_value, ...)` 会被拒绝。
 - `var def` 的限定调用写成 `Trait.bumped(value, ...)`；它复制 receiver，不接受 `&value`。
@@ -161,15 +164,19 @@ struct Point {
     value i32
 }
 
-impl Hash for Point {
-    def read() i32 {
-        ret self.value + 1
+extend Point {
+    impl Hash {
+        def read() i32 {
+            ret self.value + 1
+        }
     }
 }
 
-impl Metric for Point {
-    def read() i32 {
-        ret self.value + 2
+extend Point {
+    impl Metric {
+        def read() i32 {
+            ret self.value + 2
+        }
     }
 }
 
@@ -285,7 +292,7 @@ trait v0 现在已经把 trait 方法和 ordinary inherent method 分到不同�
 
 当前实现模型是：
 
-- `impl Trait for Type { ... }` 会给 `(SelfType, Trait, Method)` 注册一份 trait 专属实现。
+- `extend Type { impl Trait { ... } }` 会给 `(SelfType, Trait, Method)` 注册一份 trait 专属实现。
 - `Trait.method(&value, ...)`、`value.Trait.method(...)` 和 `Trait dyn` 都优先绑定到这份 trait 专属实现。
 - ordinary inherent method 仍然留在普通方法命名空间里。
 
@@ -315,15 +322,19 @@ struct Point {
     }
 }
 
-impl Hash for Point {
-    def read() i32 {
-        ret self.value + 1
+extend Point {
+    impl Hash {
+        def read() i32 {
+            ret self.value + 1
+        }
     }
 }
 
-impl Metric for Point {
-    def read() i32 {
-        ret self.value + 2
+extend Point {
+    impl Metric {
+        def read() i32 {
+            ret self.value + 2
+        }
     }
 }
 ```
@@ -360,9 +371,11 @@ struct Point {
 
 }
 
-impl Hash for Point {
-    def hash() i32 {
-        ret self.value + 1
+extend Point {
+    impl Hash {
+        def hash() i32 {
+            ret self.value + 1
+        }
     }
 }
 
@@ -378,9 +391,11 @@ struct Box[T Hash] {
     }
 }
 
-impl[T Hash] Hash for Box[T] {
-    def hash() i32 {
-        ret Hash.hash(&self.value)
+extend[T Hash] Box[T] {
+    impl Hash {
+        def hash() i32 {
+            ret Hash.hash(&self.value)
+        }
     }
 }
 ```
@@ -391,7 +406,7 @@ impl[T Hash] Hash for Box[T] {
 - bound satisfaction 在实例化点检查，而不是模板声明点提前假设成立。
 - same-module 和 imported generic instantiation 都会检查 bound。
 - struct 声明位置也支持同样的 single bound，例如 `struct Box[T Hash]`。
-- `impl[T Trait] Trait for Box[T]` 的 self type 使用普通的 `Box[T]` 声明语法，不走任何额外的类型字符串特例。
+- `extend[T Trait] Box[T] { impl Trait { ... } }` 的 self type 使用普通的 `Box[T]` 声明语法，不走任何额外的类型字符串特例。
 - generic struct method 允许声明自己的 type parameter；实例化同样支持 same-module 和 imported 调用。
 - generic struct method 的 bound 也按实例化点检查。
 - generic function / method body 中，bounded `T` 允许直接调用 bound trait method，例如 `value.hash()`。

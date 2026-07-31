@@ -409,7 +409,7 @@ isAllowedWorkspaceImportedTopLevelNode(AstNode *node) {
         return true;
     }
     if (node->is<AstImport>() || node->is<AstStructDecl>() ||
-        node->is<AstTraitDecl>() || node->is<AstTraitImplDecl>() ||
+        node->is<AstTraitDecl>() || node->is<AstExtendDecl>() ||
         node->is<AstFuncDecl>() || node->is<AstGlobalDecl>()) {
         return true;
     }

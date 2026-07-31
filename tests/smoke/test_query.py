@@ -1704,3 +1704,75 @@ def test_query_pv_can_print_nested_object_member_chains(
     if proc.stderr is not None:
         stderr = proc.stderr.read()
     assert proc.returncode == 0, stderr or f"unexpected return code {proc.returncode}"
+
+
+def test_query_indexes_trait_impls_nested_in_extend(
+    query_bin: Path, tmp_path: Path
+) -> None:
+    app_dir = tmp_path / "app"
+    app_dir.mkdir()
+
+    root_path = app_dir / "main.lo"
+    root_path.write_text(
+        "\n".join(
+            [
+                "trait Hash {",
+                "    def hash() i32",
+                "}",
+                "",
+                "struct Point {",
+                "    value i32",
+                "}",
+                "",
+                "extend Point {",
+                "    impl Hash {",
+                "        def hash() i32 {",
+                "            ret self.value",
+                "        }",
+                "    }",
+                "}",
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    proc = subprocess.Popen(
+        [str(query_bin), "--format", "json", str(app_dir)],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    try:
+        opened = send_command(proc, "open main")
+        assert opened["ok"] is True, opened
+
+        impls = send_command(proc, "find impl")
+        assert impls["ok"] is True, impls
+        assert impls["result"]["count"] == 1, impls
+        assert impls["result"]["items"][0]["name"] == "Point: Hash", impls
+        assert (
+            impls["result"]["items"][0]["qualifiedName"] == "Point.Hash"
+        ), impls
+
+        line = send_command(proc, "goto 12")
+        assert line["ok"] is True, line
+        assert line["result"]["context"]["name"] == "Point: Hash.hash", line
+        assert line["result"]["context"]["selfDetail"] == "Point const*", line
+
+        assert proc.stdin is not None
+        proc.stdin.write("quit\n")
+        proc.stdin.flush()
+        proc.stdin.close()
+        proc.wait(timeout=10)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=10)
+
+    stderr = ""
+    if proc.stderr is not None:
+        stderr = proc.stderr.read()
+    assert proc.returncode == 0, stderr or f"unexpected return code {proc.returncode}"

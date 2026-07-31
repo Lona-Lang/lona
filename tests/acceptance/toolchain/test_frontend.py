@@ -1063,9 +1063,11 @@ def test_trait_static_dispatch_lowers_to_direct_method_call(
             }
         }
 
-        impl Hash for Point {
-            def hash() i32 {
-                ret self.hash()
+        extend Point {
+            impl Hash {
+                def hash() i32 {
+                    ret self.hash()
+                }
             }
         }
 
@@ -1101,9 +1103,11 @@ def test_trait_dyn_dispatch_lowers_to_witness_indirection_without_struct_vptrs(
             }
         }
 
-        impl Hash for Point {
-            def hash() i32 {
-                ret self.hash()
+        extend Point {
+            impl Hash {
+                def hash() i32 {
+                    ret self.hash()
+                }
             }
         }
 
@@ -1159,9 +1163,11 @@ def test_trait_dyn_indirect_results_keep_sret_before_self_in_witness_calls(
             }
         }
 
-        impl Factory for Maker {
-            def make() Big {
-                ret self.make()
+        extend Maker {
+            impl Factory {
+                def make() Big {
+                    ret self.make()
+                }
             }
         }
 

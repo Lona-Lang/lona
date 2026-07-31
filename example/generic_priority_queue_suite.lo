@@ -14,9 +14,11 @@ struct BuildTask {
     risk i32
 }
 
-impl Ranked for BuildTask {
-    def rank() i32 {
-        ret self.customer_impact * 10 - self.implementation_cost - self.risk
+extend BuildTask {
+    impl Ranked {
+        def rank() i32 {
+            ret self.customer_impact * 10 - self.implementation_cost - self.risk
+        }
     }
 }
 

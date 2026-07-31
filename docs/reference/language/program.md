@@ -66,26 +66,30 @@ extend i32 {
 `extend` 创建实例方法 receiver scope，不是类型静态命名空间。完整规则见
 [struct.md](struct.md)。
 
-## 6. 顶层可以放 impl 声明
+## 6. 顶层 `extend` 可以承载 trait impl
 
 ```lona
-impl Hash for Point {
-    def hash() i32 {
-        ret self.value + 1
+extend Point {
+    impl Hash {
+        def hash() i32 {
+            ret self.value + 1
+        }
     }
 }
 
-impl dep.Hash for Point {
-    def hash() i32 {
-        ret self.value + 1
+extend Point {
+    impl dep.Hash {
+        def hash() i32 {
+            ret self.value + 1
+        }
     }
 }
 ```
 
 说明：
 
-- `impl Trait for Type { ... }` 是合法顶层声明。
-- `impl Trait for Type { ... }` 已支持 local self、imported self、applied self 和 generic self。
+- 外部 trait impl 写在顶层 `extend Type { ... }` 内；旧的顶层 `impl Trait for Type { ... }` 已删除。
+- `extend Type { impl Trait { ... } }` 支持 local self、imported self、applied self 和 generic self。
 - `obj.method()`、`Trait.method(&obj)`、`obj.Trait.method()` 和 `Trait dyn` 都可以调用这些 impl body 里定义的方法。
 - trait 方法和普通成员方法现在属于不同命名空间；如果有普通成员方法同名，`obj.method()` 仍然优先命中普通成员方法。
 - 当同一类型上有多个 trait 提供同名方法时，普通 `obj.method()` 会报歧义，此时改写成 `obj.Trait.method()` 或 `Trait.method(&obj)`。

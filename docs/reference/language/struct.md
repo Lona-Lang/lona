@@ -254,9 +254,8 @@ struct Point {
 说明：
 
 - `struct` body 里现在允许直接写 `impl Trait { ... }`。
-- 这条语法是 `impl Trait for SelfType { ... }` 的 shorthand。
-- 它只对当前结构体自身生效；也就是说上面的写法等价于 `impl Hash for Point { ... }`。
-- 如果结构体本身带 generic parameter，例如 `struct Box[T Hash] { ... }`，那么 shorthand impl 会自动继承这些 parameter；也就是说 `impl Hash { ... }` 等价于 `impl[T Hash] Hash for Box[T] { ... }`。
+- 它只对当前结构体自身生效；也就是说上面的写法与 `extend Point { impl Hash { ... } }` 表达同一份实现。
+- 如果结构体本身带 generic parameter，例如 `struct Box[T Hash] { ... }`，那么 shorthand impl 会自动继承这些 parameter；也就是说其中的 `impl Hash { ... }` 与 `extend[T Hash] Box[T] { impl Hash { ... } }` 表达同一份实现。
 - shorthand 自身不能再声明额外的 `impl[...]` header generic parameter；`struct` 内只允许写 `impl Trait { ... }` 这一种头部形状。
 - shorthand impl body 里的方法仍然属于 trait 专属方法命名空间，不会变成 ordinary inherent method。
 - trait 路径仍然可以写 imported 形式，例如 `impl dep.Hash { ... }`。

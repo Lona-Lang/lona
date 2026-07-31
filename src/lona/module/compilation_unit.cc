@@ -457,6 +457,7 @@ hashInterfaceNode(std::uint64_t &seed, AstNode *node) {
     }
     if (auto *extendDecl = dynamic_cast<AstExtendDecl *>(node)) {
         hashText(seed, "extend");
+        hashTypeParams(seed, extendDecl->typeParams);
         hashTypeNode(seed, extendDecl->targetType);
         if (extendDecl->body) {
             hashInterfaceList(seed, extendDecl->body);
@@ -2200,14 +2201,13 @@ CompilationUnit::materializeAppliedStructType(
         auto boundName = toStdString(param.boundTraitName);
         auto paramName = toStdString(param.localName);
         auto genericTypeName = toStdString(typeDecl.exportedName);
-        error(
-            location(),
-            "type `" + typeName + "` does not satisfy bound `" + boundName +
-                "` for generic parameter `" + paramName +
-                "` in generic type `" + genericTypeName + "`",
-            "Add `impl " + boundName + " for " + typeName +
-                " { ... }` in a visible module, or choose a type that already "
-                "satisfies the bound.");
+        error(location(),
+              "type `" + typeName + "` does not satisfy bound `" + boundName +
+                  "` for generic parameter `" + paramName +
+                  "` in generic type `" + genericTypeName + "`",
+              "Add `extend " + typeName + " { impl " + boundName +
+                  " { ... } }` in a visible module, or choose a type that "
+                  "already satisfies the bound.");
     }
 
     compilation_unit_impl::AppliedStructOps ops{typeTable, *this};

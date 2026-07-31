@@ -8,7 +8,7 @@
 2. [expr.md](expr.md): 表达式、调用、运算符和字面量。
 3. [type.md](type.md): 类型写法、指针、数组、tuple 和函数指针。
 4. [generic.md](generic.md): generic v0、`Type[...]`、`name[T](...)`、推断、single bound 与当前限制。
-5. [trait.md](trait.md): `trait`、`impl Trait for Type { ... }`、`value.Trait.method(...)`、`Trait dyn` 和动态 / 静态分派边界。
+5. [trait.md](trait.md): `trait`、`extend Type { impl Trait { ... } }`、`value.Trait.method(...)`、`Trait dyn` 和动态 / 静态分派边界。
 
 按主题查阅：
 

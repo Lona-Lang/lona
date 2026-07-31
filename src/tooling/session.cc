@@ -342,14 +342,8 @@ describeTraitImplHeader(const AstTraitImplDecl *decl) {
     if (!decl) {
         return {};
     }
-    std::ostringstream out;
-    auto genericParams = describeGenericParams(decl->typeParams);
-    if (!genericParams.empty()) {
-        out << genericParams << ' ';
-    }
-    out << describeDotLikeSyntax(decl->trait, "<trait>") << " for "
-        << describeTypeNode(decl->selfType, "void");
-    return out.str();
+    return describeTypeNode(decl->selfType, "void") + ": " +
+           describeDotLikeSyntax(decl->trait, "<trait>");
 }
 
 std::string
@@ -472,6 +466,9 @@ subtreeEndLine(const AstNode *node) {
     }
     if (auto *traitDecl = dynamic_cast<const AstTraitDecl *>(node)) {
         return std::max(end, subtreeEndLine(traitDecl->body));
+    }
+    if (auto *extendDecl = dynamic_cast<const AstExtendDecl *>(node)) {
+        return std::max(end, subtreeEndLine(extendDecl->body));
     }
     if (auto *traitImplDecl = dynamic_cast<const AstTraitImplDecl *>(node)) {
         return std::max(end, subtreeEndLine(traitImplDecl->body));
@@ -635,6 +632,9 @@ subtreeContainsLine(const AstNode *node, int line) {
     if (auto *traitDecl = dynamic_cast<const AstTraitDecl *>(node)) {
         return subtreeContainsLine(traitDecl->body, line);
     }
+    if (auto *extendDecl = dynamic_cast<const AstExtendDecl *>(node)) {
+        return subtreeContainsLine(extendDecl->body, line);
+    }
     if (auto *traitImplDecl = dynamic_cast<const AstTraitImplDecl *>(node)) {
         return subtreeContainsLine(traitImplDecl->body, line);
     }
@@ -783,6 +783,16 @@ findFunctionContextAtLine(const AstNode *node, int line,
         auto ownerLabel = toStdString(traitDecl->name);
         findFunctionContextAtLine(traitDecl->body, line, ownerLabel, ownerLabel,
                                   result);
+        return;
+    }
+
+    if (auto *extendDecl = dynamic_cast<const AstExtendDecl *>(node)) {
+        if (!nodeStructurallyContainsLine(extendDecl, line)) {
+            return;
+        }
+        auto ownerLabel = describeTypeNode(extendDecl->targetType, "void");
+        findFunctionContextAtLine(extendDecl->body, line, ownerLabel,
+                                  ownerLabel, result);
         return;
     }
 
@@ -2544,6 +2554,12 @@ collectFieldQueryData(const AstNode *node, const std::string &fallbackPath,
                                    namedTypes);
         return;
     }
+    if (auto *extendDecl = dynamic_cast<const AstExtendDecl *>(node)) {
+        collectOwnedFieldQueryData(
+            describeTypeNode(extendDecl->targetType, "void"), extendDecl->body,
+            fallbackPath, fields, namedTypes);
+        return;
+    }
     if (auto *traitImplDecl = dynamic_cast<const AstTraitImplDecl *>(node)) {
         collectTraitImplFieldQueryData(traitImplDecl, fallbackPath, fields,
                                        namedTypes);
@@ -4049,7 +4065,10 @@ class SymbolCollector {
     void collectTraitImpl(AstTraitImplDecl *decl,
                           const std::string &ownerPrefix = std::string()) {
         auto header = describeTraitImplHeader(decl);
-        auto qualified = ownerPrefix.empty() ? header : ownerPrefix + header;
+        auto qualified =
+            ownerPrefix.empty()
+                ? header
+                : ownerPrefix + describeDotLikeSyntax(decl->trait, "<trait>");
         append(SymbolKind::Impl, header, qualified, "", decl->loc);
         collectOwnedBody(qualified, decl->body);
     }
@@ -4081,8 +4100,9 @@ class SymbolCollector {
             collectTrait(traitDecl);
             return;
         }
-        if (auto *traitImpl = dynamic_cast<AstTraitImplDecl *>(node)) {
-            collectTraitImpl(traitImpl);
+        if (auto *extendDecl = dynamic_cast<AstExtendDecl *>(node)) {
+            collectOwnedBody(describeTypeNode(extendDecl->targetType, "void"),
+                             extendDecl->body);
             return;
         }
         if (auto *globalDecl = dynamic_cast<AstGlobalDecl *>(node)) {

@@ -132,7 +132,6 @@ program-item      ::= NL
                     | import-stat
                     | tagged-global-decl
                     | trait-decl
-                    | impl-decl
                     | extend-decl
 
 import-stat       ::= "import" ImportPath NL
@@ -144,8 +143,8 @@ import-stat       ::= "import" ImportPath NL
 - `import` 只能放在文件顶层；当前写法是无引号、无后缀的路径，例如 `import math` 或 `import pkg/math`。
 - `import` 不属于 `stat`，因此不能出现在块、函数体或结构体体内；写在这些位置会在 parser 阶段报错。
 - `global` 也只允许出现在文件顶层，不属于普通 `stat`。
-- `trait` 与 `impl` 也只允许出现在文件顶层。
-- `extend Type { ... }` 也只允许出现在文件顶层。
+- `trait` 和 `extend Type { ... }` 只允许出现在文件顶层。
+- `impl Trait { ... }` 只允许出现在 `struct` 或顶层 `extend` 的 body 中。
 
 ### 3.2 语句
 
@@ -255,11 +254,13 @@ func-decl         ::= receiver-prefix "def" IDENT opt-type-params "(" ")" NL
                     | receiver-prefix "def" IDENT opt-type-params "(" param-decl-seq ")" block
                     | receiver-prefix "def" IDENT opt-type-params "(" param-decl-seq ")" type-name block
 
-extend-decl       ::= "extend" type-name "{" "}"
-                    | "extend" type-name "{"
-                      ( tagged-func-decl | NL )
-                      { NL | tagged-func-decl }
+extend-decl       ::= "extend" opt-type-params type-name "{" "}"
+                    | "extend" opt-type-params type-name "{"
+                      ( tagged-func-decl | impl-block | NL )
+                      { NL | tagged-func-decl | impl-block }
                       "}"
+
+impl-block        ::= "impl" dot-like-name block
 
 trait-decl        ::= "trait" IDENT NL
                     | "trait" IDENT "{ }"
@@ -275,8 +276,6 @@ trait-func-decl   ::= receiver-prefix "def" IDENT opt-type-params "(" ")" NL
                     | receiver-prefix "def" IDENT opt-type-params "(" ")" type-name NL
                     | receiver-prefix "def" IDENT opt-type-params "(" param-decl-seq ")" NL
                     | receiver-prefix "def" IDENT opt-type-params "(" param-decl-seq ")" type-name NL
-
-impl-decl         ::= "impl" opt-type-params dot-like-name "for" NL* type-name block
 
 field-decl        ::= IDENT type-name
                     | "_" type-name
@@ -296,7 +295,7 @@ param-decl-seq    ::= param-decl
 
 说明：
 
-- 泛型参数列表统一写在名字后面的 `[...]`，例如 `struct Box[T]`、`def id[T](value T) T`、`impl[T Hash] Hash for Box[T]`。
+- 泛型参数列表统一写在声明关键字后的 `[...]` 或名字后的 `[...]`，例如 `extend[T Hash] Box[T]`、`struct Box[T]`、`def id[T](value T) T`。
 - generic v0 当前每个类型参数只支持一个 trait bound；例如 `[T Hash]` 合法，`[T Hash + Eq]` 会给 targeted diagnostic。
 - tag line 必须单独占一行，然后紧跟一个函数声明、结构体声明或变量定义。
 - tag line 也可以跟一个 `global` 声明。
@@ -312,11 +311,12 @@ param-decl-seq    ::= param-decl
 - `def name(...) Ret` 与后面的 `{` 也必须写在同一行；如果头部已经以换行结束，parser 会把它视为函数声明。
 - `trait Name` 与后面的 `{` 也必须写在同一行；`trait Name` 单独占一行时表示空 trait declaration。
 - `trait` body 当前稳定语义只接受方法签名；为了给用户更明确的 targeted diagnostic，parser 还会暂时接纳 `field`、`var`、`global`、`ret`、`if`、`for`、块语句等形状，然后在语义阶段统一拒绝。
-- `impl Trait for Type { ... }` 是合法顶层声明。
-- `impl Trait for Type { ... }` 现在支持 local self、imported self、applied self 和 generic self。
+- 外部 trait impl 统一写成 `extend Type { impl Trait { ... } }`；旧的顶层 `impl Trait for Type { ... }` 不再属于语法。
+- `extend Type { impl Trait { ... } }` 支持 local self、imported self、applied self 和 generic self；generic self 写成 `extend[T Bound] Box[T] { impl Trait { ... } }`。
 - `struct Type { impl Trait { ... } }` 是合法的 struct-local trait impl shorthand。
 - struct-local shorthand 会在 parser 阶段补成当前结构体自己的 `selfType`；如果结构体带 generic parameter，它们也会一并继承到 shorthand impl header。
-- struct-local shorthand 不接受自己的 `impl[...]` header generic parameter；如果需要显式写 impl 泛型头，请改用顶层 `impl[...] Trait for Type[...] { ... }`。
+- struct-local shorthand 不接受自己的 `impl[...]` header generic parameter；如果需要显式写 impl 泛型头，请使用 `extend[...] Type[...] { impl Trait { ... } }`。
+- 带泛型参数的 `extend[...]` 当前只允许包含 trait impl block；普通 extension method 仍需写在具体的非泛型 `extend Type { ... }` 中。
 - trait 方法和普通成员方法现在是分离命名空间；`obj.method()` 先找普通成员方法，再在 trait 方法中做唯一匹配，必要时可写成 `Type.method(&obj)`、`obj.Trait.method()` 或 `Trait.method(&obj)` 这类显式限定形式。
 - 结构体、顶层函数和 C FFI tag 的语义分别见 [struct.md](./struct.md)、[func.md](./func.md) 和 [../runtime/c_ffi.md](../runtime/c_ffi.md)。
 - `global` 的运行时语义与当前初始化限制见 [global.md](./global.md)。

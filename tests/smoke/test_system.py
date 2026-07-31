@@ -317,9 +317,11 @@ def test_system_trait_dyn_dispatch_runtime(compiler: CompilerHarness) -> None:
             }
         }
 
-        impl Hash for Point {
-            def hash() i32 {
-                ret self.hash()
+        extend Point {
+            impl Hash {
+                def hash() i32 {
+                    ret self.hash()
+                }
             }
         }
 
@@ -359,9 +361,11 @@ def test_system_trait_dyn_dispatch_runtime_from_pointer_backed_sources(
             }
         }
 
-        impl Hash for Point {
-            def hash() i32 {
-                ret self.hash()
+        extend Point {
+            impl Hash {
+                def hash() i32 {
+                    ret self.hash()
+                }
             }
         }
 
@@ -412,9 +416,11 @@ def test_system_trait_dyn_dispatch_runtime_with_indirect_result_aggregate(
             }
         }
 
-        impl Factory for Maker {
-            def make() Big {
-                ret self.make()
+        extend Maker {
+            impl Factory {
+                def make() Big {
+                    ret self.make()
+                }
             }
         }
         """,
@@ -465,12 +471,14 @@ def test_system_trait_dyn_mutability_runtime(compiler: CompilerHarness) -> None:
             }
         }
 
-        impl CounterLike for Counter {
-            def read() i32 {
-                ret self.read()
-            }
-            set def bump(step i32) i32 {
-                ret self.bump(step)
+        extend Counter {
+            impl CounterLike {
+                def read() i32 {
+                    ret self.read()
+                }
+                set def bump(step i32) i32 {
+                    ret self.bump(step)
+                }
             }
         }
 

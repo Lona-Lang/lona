@@ -448,10 +448,12 @@ def test_trait_value_receiver_supports_concrete_and_dyn_calls(
             set value i32
         }
 
-        impl Shift for Counter {
-            var def shifted(step i32) Counter {
-                self.value = self.value + step
-                ret self
+        extend Counter {
+            impl Shift {
+                var def shifted(step i32) Counter {
+                    self.value = self.value + step
+                    ret self
+                }
             }
         }
 
@@ -491,10 +493,12 @@ def test_trait_self_type_resolves_for_concrete_value_receiver_calls(
             set value i32
         }
 
-        impl Transform for Counter {
-            var def transformed(step i32) Self {
-                self.value = self.value + step
-                ret self
+        extend Counter {
+            impl Transform {
+                var def transformed(step i32) Self {
+                    self.value = self.value + step
+                    ret self
+                }
             }
         }
 
@@ -524,9 +528,11 @@ def test_trait_self_signature_is_rejected_through_dyn(
             value i32
         }
 
-        impl Transform for Counter {
-            var def transformed() Self {
-                ret self
+        extend Counter {
+            impl Transform {
+                var def transformed() Self {
+                    ret self
+                }
             }
         }
 
@@ -555,10 +561,12 @@ def test_trait_value_receiver_dyn_thunk_handles_indirect_result(
             var def changed(step i64) Big
         }
 
-        impl Adjust for Big {
-            var def changed(step i64) Big {
-                self.c = self.c + step
-                ret self
+        extend Big {
+            impl Adjust {
+                var def changed(step i64) Big {
+                    self.c = self.c + step
+                    ret self
+                }
             }
         }
 
@@ -817,17 +825,6 @@ def test_invalid_receiver_and_extend_forms_use_regular_syntax_errors(
             """,
         ),
         (
-            "extension_generic_header_syntax_bad.lo",
-            """
-            struct Box[T] {
-                value T
-            }
-
-            extend[T] Box[T] {
-            }
-            """,
-        ),
-        (
             "extension_field_syntax_bad.lo",
             """
             extend i32 {
@@ -847,6 +844,27 @@ def test_invalid_receiver_and_extend_forms_use_regular_syntax_errors(
     ]
     for name, source in cases:
         _expect_failure_contains(compiler, name, source, ["syntax error"])
+
+
+def test_generic_extend_rejects_ordinary_extension_methods(
+    compiler: CompilerHarness,
+) -> None:
+    _expect_failure_contains(
+        compiler,
+        "extension_generic_method_bad.lo",
+        """
+        struct Box[T] {
+            value T
+        }
+
+        extend[T] Box[T] {
+            def get() T {
+                ret self.value
+            }
+        }
+        """,
+        ["generic extend declarations currently only support trait impl blocks"],
+    )
 
 
 def test_extension_preserves_external_field_access_boundary(

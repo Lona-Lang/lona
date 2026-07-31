@@ -350,6 +350,7 @@ AstStructDecl::toJson(Json &root) {
 void
 AstExtendDecl::toJson(Json &root) {
     root["type"] = "ExtendDecl";
+    appendTypeParamNames(root, this->typeParams);
     root["targetType"] = describeTypeNode(targetType);
     root["body"] = Json::object();
     if (body) {

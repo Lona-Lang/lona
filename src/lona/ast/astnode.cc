@@ -699,15 +699,18 @@ AstStructDecl::~AstStructDecl() {
 }
 
 AstExtendDecl::~AstExtendDecl() {
-    delete targetType;
+    deleteOwnedSequence(typeParams);
     delete body;
+    delete targetType;
 }
 
 AstTraitDecl::~AstTraitDecl() { delete body; }
 
 AstTraitImplDecl::~AstTraitImplDecl() {
     deleteOwnedSequence(typeParams);
-    delete selfType;
+    if (ownsSelfType()) {
+        delete selfType;
+    }
     delete trait;
     delete body;
 }

@@ -647,16 +647,22 @@ public:
 
 class AstExtendDecl : public AstNode {
 public:
+    std::vector<AstGenericParam *> *const typeParams;
     TypeNode *const targetType;
     AstNode *const body;
 
     AstExtendDecl(TypeNode *targetType, AstNode *body,
+                  std::vector<AstGenericParam *> *typeParams = nullptr,
                   const location &loc = location())
         : AstNode(AstKind::ExtendDecl, loc),
+          typeParams(typeParams),
           targetType(targetType),
           body(body) {}
     ~AstExtendDecl() override;
 
+    bool hasTypeParams() const {
+        return typeParams != nullptr && !typeParams->empty();
+    }
     void toJson(Json &root) override;
     Object *accept(AstVisitor &visitor) override;
 };
@@ -684,6 +690,10 @@ public:
     AstNode *const trait;
     AstNode *const body;
 
+private:
+    bool ownsSelfType_ = true;
+
+public:
     AstTraitImplDecl(TypeNode *selfType, AstNode *trait, AstNode *body,
                      std::vector<AstGenericParam *> *typeParams = nullptr,
                      const location &loc = location())
@@ -699,7 +709,15 @@ public:
     }
     bool hasBody() const { return body != nullptr; }
     bool hasSelfType() const { return selfType != nullptr; }
-    void setSelfType(TypeNode *value) { selfType = value; }
+    void setSelfType(TypeNode *value) {
+        selfType = value;
+        ownsSelfType_ = true;
+    }
+    void setBorrowedSelfType(TypeNode *value) {
+        selfType = value;
+        ownsSelfType_ = false;
+    }
+    bool ownsSelfType() const { return ownsSelfType_; }
     void setTypeParams(std::vector<AstGenericParam *> *value) {
         typeParams = value;
     }
